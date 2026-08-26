@@ -1,0 +1,26 @@
+version = "1.0"
+artifacts = [ "/app/output",]
+
+[task]
+name = "application/us-economic-pressure"
+
+[metadata]
+difficulty = "easy"
+type = "survey"
+domain = "economics"
+tags = [ "household finance", "cost of living", "economic sentiment", "financial fragility", "US adults", "benchmark-anchored",]
+
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+definition = "application/shared-survey-form"
+build_timeout_sec = 600.0
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0

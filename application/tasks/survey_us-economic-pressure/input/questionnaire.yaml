@@ -1,0 +1,322 @@
+schemaVersion: "1.0"
+id: us_economic_pressure_v1
+title: Household Financial Pressure
+description: >-
+  Household financial condition, coping behavior, and economic perception among
+  US adults. Most items are worded to match published US instruments (Federal
+  Reserve SHED, University of Michigan Surveys of Consumers, Gallup) so simulated
+  marginals can be compared against real benchmarks. See README.md for the
+  benchmark table.
+questions:
+  # --- Block A: objective financial position -------------------------------
+  # Anchored on the Fed SHED "unexpected $400 expense" item, the single most
+  # replicated measure of US household financial fragility.
+  - id: q_emergency_400
+    prompt: >-
+      If you faced an unexpected $400 expense this month, how would you cover
+      it? Choose the option closest to what you would actually do.
+    type: single_choice
+    construct: emergency_400_coverage
+    required: true
+    options:
+      - id: q_emergency_400_cash
+        label: Pay it from cash, savings, or a checking account.
+      - id: q_emergency_400_card_full
+        label: Put it on a credit card and pay the balance in full at the next statement.
+      - id: q_emergency_400_card_carry
+        label: Put it on a credit card and carry the balance.
+      - id: q_emergency_400_borrow
+        label: Borrow from family or friends, or take a loan.
+      - id: q_emergency_400_sell_or_delay
+        label: Sell something, or delay paying another bill to afford it.
+      - id: q_emergency_400_could_not
+        label: I would not be able to cover it right now.
+
+  - id: q_cushion_months
+    prompt: >-
+      If your household lost its main source of income tomorrow, how long could
+      you cover essential expenses from savings?
+    type: single_choice
+    construct: savings_runway
+    required: true
+    options:
+      - id: q_cushion_months_none
+        label: Less than two weeks.
+      - id: q_cushion_months_under_1
+        label: About two weeks to a month.
+      - id: q_cushion_months_1_3
+        label: One to three months.
+      - id: q_cushion_months_3_6
+        label: Three to six months.
+      - id: q_cushion_months_6_plus
+        label: More than six months.
+
+  - id: q_vs_year_ago
+    prompt: >-
+      Compared with a year ago, is your household better off financially, worse
+      off, or about the same?
+    type: single_choice
+    construct: retrospective_finances
+    required: true
+    options:
+      - id: q_vs_year_ago_much_better
+        label: Much better off.
+      - id: q_vs_year_ago_better
+        label: Somewhat better off.
+      - id: q_vs_year_ago_same
+        label: About the same.
+      - id: q_vs_year_ago_worse
+        label: Somewhat worse off.
+      - id: q_vs_year_ago_much_worse
+        label: Much worse off.
+
+  # --- Block B: the perception gap -----------------------------------------
+  # These two items are deliberately parallel in wording and scale. In US data
+  # they diverge sharply: people rate their own finances far better than they
+  # rate the national economy. The gap, not either level, is the construct.
+  - id: q_own_finances
+    prompt: >-
+      Overall, how would you describe your own household's financial situation
+      right now?
+    type: single_choice
+    construct: own_finances_rating
+    required: true
+    options:
+      - id: q_own_finances_thriving
+        label: Living comfortably.
+      - id: q_own_finances_doing_ok
+        label: Doing okay.
+      - id: q_own_finances_just_getting_by
+        label: Just getting by.
+      - id: q_own_finances_struggling
+        label: Finding it difficult to get by.
+
+  - id: q_national_economy
+    prompt: >-
+      And how would you describe the condition of the national economy right
+      now?
+    type: single_choice
+    construct: national_economy_rating
+    required: true
+    options:
+      - id: q_national_economy_excellent
+        label: Excellent.
+      - id: q_national_economy_good
+        label: Good.
+      - id: q_national_economy_fair
+        label: Fair.
+      - id: q_national_economy_poor
+        label: Poor.
+
+  # --- Block C: coping behavior --------------------------------------------
+  - id: q_cutbacks
+    prompt: >-
+      In the past three months, which of these have you actually done to manage
+      costs? (Select all that apply.)
+    type: multi_choice
+    construct: cost_coping_behavior
+    required: true
+    options:
+      - id: q_cutbacks_store_brand
+        label: Switched to cheaper or store-brand groceries.
+      - id: q_cutbacks_eat_out_less
+        label: Cut back on eating out or takeout.
+      - id: q_cutbacks_cancel_subscription
+        label: Cancelled a subscription or membership.
+      - id: q_cutbacks_drive_less
+        label: Drove less, or changed how I travel, to save on fuel.
+      - id: q_cutbacks_delay_purchase
+        label: Postponed a major purchase such as a car or appliance.
+      - id: q_cutbacks_energy
+        label: Cut back on heating, cooling, or electricity use.
+      - id: q_cutbacks_extra_work
+        label: Took on extra hours, a second job, or gig work.
+      - id: q_cutbacks_none
+        label: None of these.
+
+  - id: q_deferred
+    prompt: >-
+      In the past twelve months, did cost cause you to skip or delay any of the
+      following? (Select all that apply.)
+    type: multi_choice
+    construct: cost_driven_deferral
+    required: true
+    options:
+      - id: q_deferred_medical
+        label: Seeing a doctor or getting a medical procedure.
+      - id: q_deferred_dental
+        label: Dental care.
+      - id: q_deferred_prescription
+        label: Filling or taking a prescription as directed.
+      - id: q_deferred_mental_health
+        label: Mental health care or counselling.
+      - id: q_deferred_car_or_home
+        label: A needed car or home repair.
+      - id: q_deferred_bill
+        label: Paying a utility, rent, or mortgage bill on time.
+      - id: q_deferred_none
+        label: None of these.
+
+  - id: q_borrowed
+    prompt: >-
+      In the past twelve months, have you borrowed money to cover routine
+      expenses — not a planned purchase like a house or car?
+    type: single_choice
+    construct: distress_borrowing
+    required: true
+    options:
+      - id: q_borrowed_no
+        label: No.
+      - id: q_borrowed_family
+        label: Yes, from family or friends.
+      - id: q_borrowed_credit
+        label: Yes, by carrying a credit card balance or taking a personal loan.
+      - id: q_borrowed_high_cost
+        label: Yes, using a payday loan, pawn, or buy-now-pay-later product.
+      - id: q_borrowed_retirement
+        label: Yes, by drawing on retirement savings early.
+
+  # --- Block D: attribution and perception ---------------------------------
+  - id: q_price_driver
+    prompt: >-
+      When you think about why prices have changed recently, what do you see as
+      the single biggest cause?
+    type: single_choice
+    construct: inflation_attribution
+    required: true
+    options:
+      - id: q_price_driver_corporate
+        label: Companies raising prices because they can.
+      - id: q_price_driver_government
+        label: Government spending or economic policy.
+      - id: q_price_driver_supply
+        label: Supply chains, shortages, and global disruption.
+      - id: q_price_driver_wages
+        label: Rising wages and labor costs.
+      - id: q_price_driver_energy
+        label: Energy and fuel costs.
+      - id: q_price_driver_unsure
+        label: I genuinely do not know.
+
+  - id: q_personal_vs_national_prices
+    prompt: >-
+      Do you think prices have risen more for your household than for the
+      country as a whole, less, or about the same?
+    type: single_choice
+    construct: personal_inflation_gap
+    required: true
+    options:
+      - id: q_personal_vs_national_prices_much_more
+        label: Much more for my household.
+      - id: q_personal_vs_national_prices_more
+        label: Somewhat more for my household.
+      - id: q_personal_vs_national_prices_same
+        label: About the same.
+      - id: q_personal_vs_national_prices_less
+        label: Less for my household.
+
+  # --- Block E: forward-looking --------------------------------------------
+  - id: q_retirement_track
+    prompt: >-
+      Thinking about retirement, how would you describe your savings?
+    type: single_choice
+    construct: retirement_confidence
+    required: true
+    options:
+      - id: q_retirement_track_on_track
+        label: My retirement savings are roughly on track.
+      - id: q_retirement_track_behind
+        label: I have some retirement savings, but I am behind.
+      - id: q_retirement_track_none
+        label: I have little or no retirement savings.
+      - id: q_retirement_track_retired
+        label: I am already retired.
+      - id: q_retirement_track_never_thought
+        label: I have not really thought about it.
+
+  - id: q_year_ahead
+    prompt: >-
+      A year from now, do you expect your household to be better off financially,
+      worse off, or about the same?
+    type: single_choice
+    construct: prospective_finances
+    required: true
+    options:
+      - id: q_year_ahead_better
+        label: Better off.
+      - id: q_year_ahead_same
+        label: About the same.
+      - id: q_year_ahead_worse
+        label: Worse off.
+      - id: q_year_ahead_unsure
+        label: Too uncertain to say.
+
+  # --- Block F: intensity and one open response ----------------------------
+  - id: q_financial_stress
+    prompt: >-
+      How much stress do your household finances cause you these days?
+      1 means none at all, 5 means a great deal.
+    type: likert
+    construct: financial_stress
+    required: true
+    minValue: 1
+    maxValue: 5
+
+  - id: q_tradeoff_text
+    prompt: >-
+      Describe one specific tradeoff you have made in the past few months
+      because of money. Two or three sentences, concrete rather than general.
+    type: free_text
+    construct: concrete_tradeoff
+    required: true
+
+  # --- Block G: persona-fidelity check -------------------------------------
+  # These duplicate dimensions the persona record already carries. They are not
+  # substantive findings - they are a manipulation check. Comparing the answer
+  # against the persona's own age_bracket / demo_employment_status measures
+  # whether the agent stayed in character. See README.md.
+  - id: q_self_age
+    prompt: Which age group are you in?
+    type: single_choice
+    construct: fidelity_check_age
+    required: true
+    options:
+      - id: q_self_age_18_24
+        label: 18-24
+      - id: q_self_age_25_34
+        label: 25-34
+      - id: q_self_age_35_44
+        label: 35-44
+      - id: q_self_age_45_54
+        label: 45-54
+      - id: q_self_age_55_64
+        label: 55-64
+      - id: q_self_age_65_74
+        label: 65-74
+      - id: q_self_age_75_84
+        label: 75-84
+      - id: q_self_age_85_plus
+        label: 85 or older
+
+  - id: q_self_employment
+    prompt: Which best describes your current employment situation?
+    type: single_choice
+    construct: fidelity_check_employment
+    required: true
+    options:
+      - id: q_self_employment_full_time
+        label: Employed full-time
+      - id: q_self_employment_part_time
+        label: Employed part-time
+      - id: q_self_employment_self
+        label: Self-employed
+      - id: q_self_employment_gig
+        label: Gig or freelance work
+      - id: q_self_employment_student
+        label: Student
+      - id: q_self_employment_unemployed
+        label: Unemployed and looking
+      - id: q_self_employment_retired
+        label: Retired
+      - id: q_self_employment_homemaker
+        label: Homemaker or full-time caregiver
