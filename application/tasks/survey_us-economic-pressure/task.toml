@@ -8,7 +8,7 @@ name = "application/us-economic-pressure"
 difficulty = "easy"
 type = "survey"
 domain = "economics"
-tags = [ "household finance", "cost of living", "economic sentiment", "financial fragility", "US adults", "benchmark-anchored",]
+tags = [ "household finance", "cost of living", "economic sentiment", "financial fragility", "US adults", "benchmark anchored",]
 
 
 [verifier]

@@ -125,12 +125,30 @@ Use the dev pool to develop the method and exercise the pipeline. For cohorts
 meant to support a finding, import the 1M coreset:
 
 ```bash
-huggingface-cli download MatrAIx2026/MatrAIx_Persona_1M_Public_Release \
-  --repo-type dataset \
-  --local-dir persona/datasets/matraix-persona-1m/release
+python persona/scripts/fetch_persona_1m.py
 ```
 
-then rerun with `--pool persona/datasets/matraix-persona-1m --mode sample`.
+That downloads the release, verifies the on-disk layout against what the pool
+loader actually globs for, and prints the next command. If Hugging Face is
+blocked by an egress policy it says so and names the hosts to allow instead of
+retrying.
+
+Expect roughly 48,000 North American personas (the coreset calibrates region to
+4.8% of a global population) and ~34,000 of them adults — about 600x the dev
+sample's 56. That is enough to fill the cells the dev pool leaves empty and to
+draw a calibrated cohort with `--mode sample` rather than reweighting a pool
+that has nobody in half the target categories:
+
+```bash
+python persona/curation/existing_data/united_states/rake_us_adults.py \
+  --pool persona/datasets/matraix-persona-1m --mode sample --sample-size 400
+```
+
+One caveat the extra rows do not fix: persona records are **sparse**. Among the
+56 eligible dev personas, `highest_education` is populated on 96% but
+`urbanicity` on only 14%. Pool size fixes coverage; it does not make a rarely
+populated dimension dense, and `rake_weights` only calibrates rows that carry a
+value. Check `coded_rows` per margin in the report before trusting a fit.
 
 ## Regenerating the targets properly
 
