@@ -133,22 +133,63 @@ loader actually globs for, and prints the next command. If Hugging Face is
 blocked by an egress policy it says so and names the hosts to allow instead of
 retrying.
 
-Expect roughly 48,000 North American personas (the coreset calibrates region to
-4.8% of a global population) and ~34,000 of them adults — about 600x the dev
-sample's 56. That is enough to fill the cells the dev pool leaves empty and to
-draw a calibrated cohort with `--mode sample` rather than reweighting a pool
-that has nobody in half the target categories:
+## What the 1M release actually supports
+
+Measured against the downloaded release (999,847 rows), not projected:
+
+```
+999847 personas -> 143336 eligible US-adult proxy
+n=143336  effective_n=35451.3  design_effect=4.043
+WARNING: weighting discards 75% of the statistical power.
+```
+
+143,336 eligible adults, ~2,560x the dev sample's 56 — far more than the
+~34,000 an earlier draft of this section projected from the 4.8% region share.
+Every coverage hole the dev sample had is gone: `structural_gaps` comes back
+empty, every target category has eligible personas, and raking lands the
+margins to within 0.0018 on age, gender, education and urbanicity.
+
+That fixes coverage. It does not fix the other two problems.
+
+**Sparsity.** `coded_rows` per margin, as a share of the 143,336 eligible:
+
+| margin | coded | share | smallest cell |
+|---|---|---|---|
+| `highest_education` | 128,754 | 89.8% | Postdoc = 390 |
+| `gender_identity` | 113,972 | 79.5% | Prefer not to say = 1 |
+| `age_bracket` | 109,610 | 76.5% | 85+ = 2,660 |
+| `demo_ethnicity_broad` | 101,989 | 71.2% | Southeast Asian = 5 |
+| `urbanicity` | 42,821 | 29.9% | Nomadic / remote = 73 |
+
+`urbanicity` is still carried by fewer than a third of eligible records. Pool
+size makes a rarely populated dimension bigger in absolute terms, not denser,
+and `rake_weights` only calibrates rows that carry a value.
+
+**Cells too thin to reach.** `structural_gaps` flags a category with *zero*
+rows. It does not flag one with five. `demo_ethnicity_broad` / Southeast Asian
+has 5 eligible records against a 2.0% target, and raking reaches 0.16% — a
+12x shortfall, and the largest residual in the whole fit. Pacific Islander is
+the same shape (n=5). Read the per-category `n` alongside the residual; a
+category that is present but negligible behaves like a hole and is not
+reported as one.
+
+## Choosing a cohort size
+
+The 38 target cells across the five default dimensions set a floor. A draw of
+40 personas has roughly one persona per cell and cannot match the targets it
+was drawn against — its own margins come back 0.04 to 0.20 off, and its
+`urbanicity` fit rests on 13 records:
 
 ```bash
 python persona/curation/existing_data/united_states/rake_us_adults.py \
   --pool persona/datasets/matraix-persona-1m --mode sample --sample-size 400
 ```
 
-One caveat the extra rows do not fix: persona records are **sparse**. Among the
-56 eligible dev personas, `highest_education` is populated on 96% but
-`urbanicity` on only 14%. Pool size fixes coverage; it does not make a rarely
-populated dimension dense, and `rake_weights` only calibrates rows that carry a
-value. Check `coded_rows` per margin in the report before trusting a fit.
+Note also that `--mode sample` reports `effective_n` equal to `n` and a design
+effect of exactly 1.0. That is not a quality signal: a drawn cohort carries
+unit weights by construction, so Kish's formula has nothing to measure. The
+diagnostic that matters for a draw is how far its realized margins sit from
+the targets, and how many rows carry each dimension.
 
 ## Regenerating the targets properly
 
