@@ -275,3 +275,212 @@ def test_end_to_end_rake_on_dev_pool(rake, targets, schema_values):
         "the dev sample has known coverage holes - if this passes cleanly the "
         "pool changed and the README's numbers need revisiting"
     )
+
+
+# --- Parquet pool layout -------------------------------------------------
+#
+# The dev sample is a directory of per-persona YAML; the published Persona 1M
+# release is Parquet plus a codes schema. load_pool has to read both, and the
+# Parquet path has to go through the pool module's own codec rather than a
+# second decoder that can drift from the release format. These tests build a
+# tiny synthetic release in the real on-disk shape so they run without the
+# multi-GB download.
+
+RELEASE_DIMENSIONS = {
+    "region": ["North America", "South America", "Europe", "Africa"],
+    "age_bracket": [
+        "Under 5",
+        "5-12",
+        "13-17",
+        "18-24",
+        "25-34",
+        "35-44",
+        "45-54",
+        "55-64",
+        "65-74",
+        "75-84",
+        "85+",
+    ],
+    "gender_identity": ["Man", "Woman", "Non-binary"],
+    "cult_united_states": ["Native", "Lived there", "Familiar", "Unfamiliar"],
+}
+
+
+def _write_synthetic_release(root: Path, records: list[dict[str, str]]) -> Path:
+    """Write a minimal Persona 1M-shaped release: data/*.parquet + codes schema.
+
+    Mirrors the published layout exactly - the same file glob, the same column
+    names, the same packed-nibble attribute encoding - because the point of the
+    test is that the loader's real layout probe and real codec accept it.
+    """
+    pytest.importorskip("pyarrow")
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from persona.post_process.unified_dataset.schema import ATTRIBUTE_COUNT, AttributeCodec
+
+    # The codec is positional over a fixed-width column list, so the schema has
+    # to carry exactly ATTRIBUTE_COUNT columns. Ours go first; the rest is inert
+    # filler standing in for the dimensions this test does not exercise.
+    columns = [
+        {"id": name, "values": values} for name, values in RELEASE_DIMENSIONS.items()
+    ]
+    columns += [
+        {"id": f"filler_{index}", "values": ["a", "b"]}
+        for index in range(ATTRIBUTE_COUNT - len(columns))
+    ]
+    data_dir = root / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    schema_path = root / "persona_codes.schema.json"
+    schema_path.write_text(json.dumps({"columns": columns}), encoding="utf-8")
+
+    codec = AttributeCodec.from_codes_schema(schema_path)
+    attributes, bitmaps, overrides = [], [], []
+    for record in records:
+        packed, nulls, over = codec.encode_mapping(record)
+        attributes.append(packed)
+        bitmaps.append(nulls)
+        overrides.append(over)
+
+    table = pa.table(
+        {
+            "source": pa.array([f"synthetic-{i}" for i in range(len(records))]),
+            "source_row_index": pa.array(list(range(len(records))), type=pa.int64()),
+            "attributes": pa.array(attributes, type=pa.binary()),
+            "null_bitmap": pa.array(bitmaps, type=pa.binary()),
+            "attribute_overrides": pa.array(
+                overrides,
+                type=pa.list_(
+                    pa.struct([("field_index", pa.int32()), ("value", pa.string())])
+                ),
+            ),
+        }
+    )
+    pq.write_table(table, data_dir / "persona-1m-0000.parquet")
+    return root
+
+
+@pytest.fixture
+def synthetic_release(tmp_path):
+    """Four personas: two US-adult proxies, one minor, one outside the region."""
+    records = [
+        {"region": "North America", "age_bracket": "35-44", "gender_identity": "Woman"},
+        {"region": "North America", "age_bracket": "65-74", "gender_identity": "Man"},
+        {"region": "North America", "age_bracket": "13-17", "gender_identity": "Man"},
+        {"region": "Europe", "age_bracket": "25-34", "gender_identity": "Woman"},
+    ]
+    return _write_synthetic_release(tmp_path / "pool", records)
+
+
+def test_load_pool_reads_a_parquet_release(rake, synthetic_release):
+    """Parquet rows must arrive in the same shape the YAML path produces."""
+    personas = list(rake.load_pool(synthetic_release))
+    assert len(personas) == 4
+    for persona in personas:
+        assert persona["persona_id"], "every row needs an id to be sampled by"
+        assert persona["source"]
+        assert isinstance(persona["dimensions"], dict)
+    assert {p["dimensions"]["age_bracket"] for p in personas} == {
+        "35-44",
+        "65-74",
+        "13-17",
+        "25-34",
+    }
+
+
+def test_load_pool_finds_a_release_subdirectory(rake, tmp_path):
+    """fetch_persona_1m.py lands the release under <pool>/release/, not <pool>/."""
+    pool = tmp_path / "matraix-persona-1m"
+    _write_synthetic_release(
+        pool / "release",
+        [{"region": "North America", "age_bracket": "45-54"}],
+    )
+    assert len(list(rake.load_pool(pool))) == 1
+
+
+def test_parquet_rows_flow_through_the_us_adult_filter(rake, synthetic_release):
+    """The minor and the non-North-American must be dropped, as in the YAML path.
+
+    This is the trap the script exists to close: a 12-year-old carries a valid
+    age code, so a minor left in the pool would silently inflate every margin
+    denominator. Decoding from Parquet must not reopen it.
+    """
+    personas = rake.load_pool(synthetic_release)
+    eligible, audit = rake.select_us_adults(personas, require_us_culture=False)
+    assert audit["pool_total"] == 4
+    assert audit["dropped_minor"] == 1
+    assert audit["dropped_region_not_north_america"] == 1
+    assert audit["kept"] == 2
+    assert {p["dimensions"]["age_bracket"] for p in eligible} == {"35-44", "65-74"}
+
+
+def test_yaml_layout_wins_when_both_are_present(rake, tmp_path):
+    """A YAML pool must never be read through the Parquet decoder by accident."""
+    pool = tmp_path / "mixed"
+    _write_synthetic_release(pool, [{"region": "North America", "age_bracket": "25-34"}])
+    (pool / "solo.yaml").write_text(
+        json.dumps(
+            {
+                "persona_id": "yaml-only",
+                "dimensions": {"region": "North America", "age_bracket": "55-64"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    personas = rake.load_pool(pool)
+    assert [p["persona_id"] for p in personas] == ["yaml-only"]
+
+
+def test_resolve_parquet_release_rejects_an_unrelated_directory(rake, tmp_path):
+    """A stray directory of parquet files is not a release - the schema is required."""
+    assert rake.resolve_parquet_release(tmp_path / "missing") is None
+
+    bare = tmp_path / "bare"
+    (bare / "data").mkdir(parents=True)
+    (bare / "data" / "persona-1m-0000.parquet").write_bytes(b"not really parquet")
+    assert rake.resolve_parquet_release(bare) is None, (
+        "parquet files without persona_codes.schema.json cannot be decoded"
+    )
+
+
+def test_empty_pool_names_both_supported_layouts(rake, tmp_path):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    with pytest.raises(SystemExit) as excinfo:
+        rake.load_pool(empty)
+    message = str(excinfo.value)
+    assert "yaml" in message.lower()
+    assert "parquet" in message.lower()
+    assert "fetch_persona_1m.py" in message
+
+
+def test_parquet_pool_is_streamed_not_materialized(rake, synthetic_release):
+    """A decoded 1M pool does not fit in memory, so the Parquet path must be lazy.
+
+    Materializing all 1M decoded personas costs well over 10 GB and dies before
+    it reaches the filter, even though only ~3% of rows survive it. Guard the
+    laziness directly: nothing may be decoded until the caller iterates.
+    """
+    personas = rake.load_pool(synthetic_release)
+    assert not isinstance(personas, list), (
+        "load_pool must return a lazy iterator for the Parquet layout"
+    )
+    assert next(iter(personas))["persona_id"]
+
+
+def test_select_us_adults_consumes_a_one_shot_iterator(rake):
+    """The filter must count the pool as it streams, not call len() on it.
+
+    pool_total came from len(personas) when every pool was a list. Against a
+    generator that is a TypeError, and quietly reporting 0 would be worse.
+    """
+    records = [
+        {"persona_id": "a", "dimensions": {"region": "North America", "age_bracket": "35-44"}},
+        {"persona_id": "b", "dimensions": {"region": "North America", "age_bracket": "13-17"}},
+        {"persona_id": "c", "dimensions": {"region": "Europe", "age_bracket": "45-54"}},
+    ]
+    eligible, audit = rake.select_us_adults(iter(records), require_us_culture=False)
+    assert audit["pool_total"] == 3
+    assert audit["dropped_minor"] == 1
+    assert audit["dropped_region_not_north_america"] == 1
+    assert [p["persona_id"] for p in eligible] == ["a"]

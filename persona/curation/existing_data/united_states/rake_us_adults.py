@@ -37,7 +37,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
-from typing import Any
+from typing import Any, Iterable, Iterator
 
 import numpy as np
 import yaml
@@ -84,30 +84,124 @@ def load_schema_values(path: Path) -> dict[str, list[str]]:
     return {str(key): list(value.get("values") or []) for key, value in items}
 
 
-def load_pool(pool_dir: Path) -> list[dict[str, Any]]:
-    files = sorted(pool_dir.glob("*.yaml"))
-    if not files:
-        raise SystemExit(
-            f"No persona YAML found in {pool_dir}.\n"
-            "For a real US cohort import the 1M coreset first:\n"
-            "  huggingface-cli download MatrAIx2026/MatrAIx_Persona_1M_Public_Release "
-            "--repo-type dataset --local-dir persona/datasets/matraix-persona-1m/release"
-        )
+def _import_1m_pool():
+    """Import the production pool loader, which owns the Parquet codec/decoder.
+
+    It lives under application/playground and pulls in packages/playground/src
+    and src/, none of which are on sys.path when this script runs standalone.
+    """
+    for extra in ("application/playground", "packages/playground/src", "src"):
+        path = str(REPO_ROOT / extra)
+        if path not in sys.path:
+            sys.path.insert(0, path)
+    from backend.service import persona_1m_pool  # noqa: PLC0415
+
+    return persona_1m_pool
+
+
+def resolve_parquet_release(pool_dir: Path):
+    """Return Persona1MPaths for a 1M-style release under pool_dir, else None.
+
+    Probes with the pool loader's own layout check (_paths_from_root) so this
+    agrees with resolve_1m_paths by construction rather than by a second,
+    drifting copy of the glob. Accepts either the release root itself or a
+    parent holding release/, which is where fetch_persona_1m.py lands it.
+    """
+    if not pool_dir.is_dir():
+        return None
+    try:
+        pool = _import_1m_pool()
+    except ImportError:
+        return None
+    for candidate in (pool_dir, pool_dir / "release"):
+        paths = pool._paths_from_root(candidate)
+        if paths is not None and paths.parquet_files:
+            return paths
+    return None
+
+
+def load_pool_yaml(pool_dir: Path) -> list[dict[str, Any]]:
+    """Load a directory of per-persona YAML files (the dev sample layout)."""
     personas = []
-    for file in files:
+    for file in sorted(pool_dir.glob("*.yaml")):
         record = yaml.safe_load(file.read_text(encoding="utf-8"))
         if isinstance(record, dict) and record.get("persona_id"):
             personas.append(record)
     return personas
 
 
+def load_pool_parquet(paths, *, progress_every: int = 100_000) -> Iterator[dict[str, Any]]:
+    """Stream-decode a Persona 1M Parquet release into persona records.
+
+    Delegates every byte of decoding to the pool module: the codec built from
+    persona_codes.schema.json and _iter_decoded_rows, which already yields
+    exactly the {persona_id, source, dimensions} shape the YAML path produces.
+    Writing a second decoder here would be a second thing to keep in sync with
+    the release format.
+
+    This yields rather than returning a list on purpose. A decoded persona is a
+    dict of ~1290 possible dimensions; materializing all 1M of them costs well
+    over 10 GB and dies on an ordinary box, while only the ~3% that survive
+    select_us_adults are ever needed. Consuming this lazily bounds peak memory
+    by the eligible set, not the release.
+    """
+    pool = _import_1m_pool()
+    codec = pool.load_codec(paths.schema_path)
+    print(
+        f"  decoding {len(paths.parquet_files)} parquet file(s) from {paths.data_dir} "
+        "(streaming the whole release; this takes a few minutes)",
+        file=sys.stderr,
+        flush=True,
+    )
+    count = 0
+    for count, row in enumerate(pool._iter_decoded_rows(paths, codec), start=1):
+        if row.get("persona_id"):
+            yield row
+        if progress_every and count % progress_every == 0:
+            print(f"    {count:,} rows decoded", file=sys.stderr, flush=True)
+    print(f"    {count:,} rows decoded", file=sys.stderr, flush=True)
+
+
+def load_pool(pool_dir: Path) -> Iterable[dict[str, Any]]:
+    """Load a persona pool from either layout: YAML directory or 1M Parquet.
+
+    The dev sample is one YAML file per persona; the published 1M release is
+    Parquet with codes plus a schema. YAML is probed first so an explicit dev
+    pool never pays for a release-layout probe.
+
+    Returns a list for the (small) YAML layout and a lazy iterator for the 1M
+    release. Callers must therefore iterate once and not index or re-scan; the
+    only consumer, select_us_adults, does exactly that.
+    """
+    personas = load_pool_yaml(pool_dir)
+    if personas:
+        return personas
+
+    paths = resolve_parquet_release(pool_dir)
+    if paths is not None:
+        return load_pool_parquet(paths)
+
+    raise SystemExit(
+        f"No persona pool found in {pool_dir}.\n"
+        "Expected either *.yaml persona files (dev sample layout) or a Persona 1M\n"
+        "release with data/persona-1m-*.parquet and persona_codes.schema.json.\n"
+        "To import the 1M coreset:\n"
+        "  python persona/scripts/fetch_persona_1m.py"
+    )
+
+
 def select_us_adults(
-    personas: list[dict[str, Any]], *, require_us_culture: bool
+    personas: Iterable[dict[str, Any]], *, require_us_culture: bool
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    """Filter to the US-adult proxy, returning survivors and a drop audit."""
+    """Filter to the US-adult proxy, returning survivors and a drop audit.
+
+    Takes any iterable, not just a list, so the 1M Parquet release can be
+    filtered as it streams: the survivors are held, the ~97% that are not
+    US-adult proxies are counted and dropped without ever being accumulated.
+    """
     adult_values = set(ADULT_AGE_VALUES) | OFF_SCHEMA_ADULT_AGES
     audit = {
-        "pool_total": len(personas),
+        "pool_total": 0,
         "dropped_region_not_north_america": 0,
         "dropped_region_missing": 0,
         "dropped_age_missing": 0,
@@ -118,6 +212,7 @@ def select_us_adults(
     }
     kept = []
     for persona in personas:
+        audit["pool_total"] += 1
         dims = persona.get("dimensions") or {}
         region = dims.get("region")
         if region is None:
