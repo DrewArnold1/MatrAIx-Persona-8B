@@ -484,3 +484,112 @@ def test_select_us_adults_consumes_a_one_shot_iterator(rake):
     assert audit["dropped_minor"] == 1
     assert audit["dropped_region_not_north_america"] == 1
     assert [p["persona_id"] for p in eligible] == ["a"]
+
+
+# --- eligible-set cache ---------------------------------------------------
+#
+# Decoding the 1M release takes minutes, so the filtered eligible set is
+# cached. The risk a cache introduces is calibrating against the wrong pool
+# without noticing, so these pin the invalidation rules rather than the speed.
+
+CACHE_PERSONAS = [
+    {
+        "persona_id": "a",
+        "source": "synthetic",
+        "dimensions": {"region": "North America", "age_bracket": "35-44"},
+    },
+    {
+        "persona_id": "b",
+        "source": "synthetic",
+        "dimensions": {"region": "North America", "age_bracket": "65-74"},
+    },
+]
+CACHE_AUDIT = {"pool_total": 9, "kept": 2, "dropped_minor": 3}
+
+
+def test_eligible_cache_round_trips(rake, tmp_path):
+    cache = tmp_path / "eligible.jsonl"
+    rake.write_eligible_cache(
+        cache, CACHE_PERSONAS, CACHE_AUDIT, pool=Path("pool-a"), require_us_culture=False
+    )
+    loaded = rake.read_eligible_cache(
+        cache, pool=Path("pool-a"), require_us_culture=False
+    )
+    assert loaded is not None
+    personas, audit = loaded
+    assert personas == CACHE_PERSONAS
+    assert audit == CACHE_AUDIT, "the drop audit must survive, not be recomputed as 0"
+
+
+def test_eligible_cache_misses_on_a_different_pool(rake, tmp_path):
+    """Reusing pool A's eligible set for pool B would calibrate the wrong data."""
+    cache = tmp_path / "eligible.jsonl"
+    rake.write_eligible_cache(
+        cache, CACHE_PERSONAS, CACHE_AUDIT, pool=Path("pool-a"), require_us_culture=False
+    )
+    assert rake.read_eligible_cache(
+        cache, pool=Path("pool-b"), require_us_culture=False
+    ) is None
+
+
+def test_eligible_cache_misses_when_the_culture_filter_changes(rake, tmp_path):
+    """--us-culture changes which personas are eligible, so it changes the cache."""
+    cache = tmp_path / "eligible.jsonl"
+    rake.write_eligible_cache(
+        cache, CACHE_PERSONAS, CACHE_AUDIT, pool=Path("pool-a"), require_us_culture=False
+    )
+    assert rake.read_eligible_cache(
+        cache, pool=Path("pool-a"), require_us_culture=True
+    ) is None
+
+
+def test_eligible_cache_misses_on_a_truncated_file(rake, tmp_path):
+    """A run killed mid-dump must not read back as a complete, smaller pool.
+
+    This is the failure the atomic rename exists to prevent; the row-count
+    check is the backstop if a short file appears some other way.
+    """
+    cache = tmp_path / "eligible.jsonl"
+    rake.write_eligible_cache(
+        cache, CACHE_PERSONAS, CACHE_AUDIT, pool=Path("pool-a"), require_us_culture=False
+    )
+    lines = cache.read_text(encoding="utf-8").splitlines()
+    cache.write_text("\n".join(lines[:-1]) + "\n", encoding="utf-8")
+    assert rake.read_eligible_cache(
+        cache, pool=Path("pool-a"), require_us_culture=False
+    ) is None
+
+
+def test_eligible_cache_write_is_atomic(rake, tmp_path):
+    """The cache appears whole or not at all, and leaves no .tmp behind."""
+    cache = tmp_path / "eligible.jsonl"
+    rake.write_eligible_cache(
+        cache, CACHE_PERSONAS, CACHE_AUDIT, pool=Path("pool-a"), require_us_culture=False
+    )
+    assert cache.is_file()
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_missing_eligible_cache_is_a_miss_not_an_error(rake, tmp_path):
+    assert rake.read_eligible_cache(
+        None, pool=Path("pool-a"), require_us_culture=False
+    ) is None
+    assert rake.read_eligible_cache(
+        tmp_path / "absent.jsonl", pool=Path("pool-a"), require_us_culture=False
+    ) is None
+
+
+def test_cached_eligible_set_matches_an_uncached_filter(rake, synthetic_release, tmp_path):
+    """The cache must be a shortcut to the same answer, not a different one."""
+    direct, direct_audit = rake.select_us_adults(
+        rake.load_pool(synthetic_release), require_us_culture=False
+    )
+    cache = tmp_path / "eligible.jsonl"
+    rake.write_eligible_cache(
+        cache, direct, direct_audit, pool=synthetic_release, require_us_culture=False
+    )
+    cached, cached_audit = rake.read_eligible_cache(
+        cache, pool=synthetic_release, require_us_culture=False
+    )
+    assert cached == direct
+    assert cached_audit == direct_audit

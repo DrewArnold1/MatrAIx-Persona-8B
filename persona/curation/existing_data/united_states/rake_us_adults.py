@@ -190,6 +190,72 @@ def load_pool(pool_dir: Path) -> Iterable[dict[str, Any]]:
     )
 
 
+ELIGIBLE_CACHE_FORMAT = 1
+
+
+def read_eligible_cache(
+    path: Path | None, *, pool: Path, require_us_culture: bool
+) -> tuple[list[dict[str, Any]], dict[str, int]] | None:
+    """Load a previously filtered eligible set, or None if it cannot be reused.
+
+    Decoding the 1M release takes minutes, and comparing cohort sizes means
+    doing it once per candidate size. The filtered set is the same every time,
+    so it is cached after the first pass.
+
+    A stale cache is worse than no cache: it would silently calibrate against
+    the wrong pool. The header therefore records what the cache was built from,
+    and any mismatch - format, pool or filter - is treated as a miss rather
+    than an error, so a changed flag just costs a re-decode.
+    """
+    if path is None or not path.is_file():
+        return None
+    with path.open(encoding="utf-8") as handle:
+        try:
+            header = json.loads(handle.readline())
+        except json.JSONDecodeError:
+            return None
+        if (
+            header.get("cache_format") != ELIGIBLE_CACHE_FORMAT
+            or header.get("pool") != str(pool)
+            or header.get("us_culture_filter") is not require_us_culture
+        ):
+            return None
+        personas = [json.loads(line) for line in handle if line.strip()]
+    audit = header.get("audit")
+    if not isinstance(audit, dict) or len(personas) != audit.get("kept"):
+        return None
+    return personas, audit
+
+
+def write_eligible_cache(
+    path: Path,
+    personas: list[dict[str, Any]],
+    audit: dict[str, int],
+    *,
+    pool: Path,
+    require_us_culture: bool,
+) -> None:
+    """Write the eligible set as a header line plus one JSON object per row.
+
+    Written to a temporary file and renamed, because a run interrupted midway
+    through a 143k-row dump would otherwise leave a short file that reads as a
+    complete, smaller pool - a silently wrong cohort rather than a crash.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    header = {
+        "cache_format": ELIGIBLE_CACHE_FORMAT,
+        "pool": str(pool),
+        "us_culture_filter": require_us_culture,
+        "audit": audit,
+    }
+    temporary = path.with_name(path.name + ".tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        handle.write(json.dumps(header) + "\n")
+        for persona in personas:
+            handle.write(json.dumps(persona) + "\n")
+    temporary.replace(path)
+
+
 def select_us_adults(
     personas: Iterable[dict[str, Any]], *, require_us_culture: bool
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
@@ -440,6 +506,14 @@ def main() -> int:
         help="Narrow to cult_united_states in {Native, Lived there}. Sharper US proxy, "
         "far smaller pool, and biased toward personas whose culture field is populated.",
     )
+    parser.add_argument(
+        "--eligible-cache",
+        type=Path,
+        default=None,
+        help="Cache the filtered eligible set here and reuse it on later runs, "
+        "skipping the multi-minute Parquet decode. Rebuilt automatically when "
+        "--pool or --us-culture changes.",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args()
@@ -452,9 +526,25 @@ def main() -> int:
         else list(targets_payload.get("default_rake_dimensions") or [])
     )
 
-    personas = load_pool(args.pool)
-    eligible, audit = select_us_adults(personas, require_us_culture=args.us_culture)
-    print(f"Pool: {args.pool}")
+    cached = read_eligible_cache(
+        args.eligible_cache, pool=args.pool, require_us_culture=args.us_culture
+    )
+    if cached is not None:
+        eligible, audit = cached
+        print(f"Pool: {args.pool} (eligible set from {args.eligible_cache})")
+    else:
+        personas = load_pool(args.pool)
+        eligible, audit = select_us_adults(personas, require_us_culture=args.us_culture)
+        if args.eligible_cache is not None:
+            write_eligible_cache(
+                args.eligible_cache,
+                eligible,
+                audit,
+                pool=args.pool,
+                require_us_culture=args.us_culture,
+            )
+            print(f"  cached eligible set to {args.eligible_cache}")
+        print(f"Pool: {args.pool}")
     print(f"  {audit['pool_total']} personas -> {audit['kept']} eligible US-adult proxy")
     for key, count in audit.items():
         if key.startswith("dropped_") and count:
