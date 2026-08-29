@@ -233,3 +233,87 @@ def test_every_application_task_has_valid_persona_strategy() -> None:
     assert not failures, "persona_strategy.json validation failed:\n- " + "\n- ".join(
         failures
     )
+
+
+US_ECON_SURVEY = ROOT / "application/tasks/survey_us-economic-pressure"
+
+
+def _load_us_econ_verifier(output_dir: Path):
+    """Import the verifier fresh so its OUTPUT_DIR-derived paths resolve."""
+    spec = importlib.util.spec_from_file_location(
+        "us_econ_test_state_{}".format(abs(hash(str(output_dir)))),
+        US_ECON_SURVEY / "tests/test_state.py",
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_us_econ_fidelity_resolves_persona_without_app_mount(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The fidelity check must fire on native host profiles.
+
+    Regression: PERSONA_CANDIDATES only listed MATRIX_PERSONA_PATH (set by
+    nothing) and /app/input/persona.yaml (absent unless Docker mounts it), so
+    the json_survey host profile silently produced zero survey.fidelity.*
+    facets on every trial instead of the documented sparse-but-nonzero rate.
+    """
+    output_dir = tmp_path / "app" / "output"
+    input_dir = tmp_path / "app" / "input"
+    output_dir.mkdir(parents=True)
+    input_dir.mkdir(parents=True)
+    (input_dir / "persona.yaml").write_text(
+        "dimensions:\n"
+        "  age_bracket: 45-54\n"
+        "  demo_employment_status: Full-time\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("HARBOR_OUTPUT_DIR", str(output_dir))
+    monkeypatch.delenv("MATRIX_PERSONA_PATH", raising=False)
+
+    module = _load_us_econ_verifier(output_dir)
+    facets = module._fidelity_facets(
+        {
+            "q_self_age": "q_self_age_45_54",
+            "q_self_employment": "q_self_employment_gig",
+        }
+    )
+
+    by_key = {f["key"]: f["value"] for f in facets}
+    assert by_key == {
+        "fidelity_age_bracket": True,
+        "fidelity_demo_employment_status": False,
+    }
+
+
+def test_us_econ_fidelity_skips_dimensions_the_persona_lacks(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Off-schema and absent dimensions stay uncoded rather than guessed.
+
+    '65+' is carried by a large slice of the pool but is not a schema age
+    bracket, so it must not be mapped onto 65-74/75-84/85+.
+    """
+    output_dir = tmp_path / "app" / "output"
+    input_dir = tmp_path / "app" / "input"
+    output_dir.mkdir(parents=True)
+    input_dir.mkdir(parents=True)
+    (input_dir / "persona.yaml").write_text(
+        "dimensions:\n  age_bracket: 65+\n  demo_employment_status: Retired\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("HARBOR_OUTPUT_DIR", str(output_dir))
+    monkeypatch.delenv("MATRIX_PERSONA_PATH", raising=False)
+
+    module = _load_us_econ_verifier(output_dir)
+    facets = module._fidelity_facets(
+        {
+            "q_self_age": "q_self_age_65_74",
+            "q_self_employment": "q_self_employment_retired",
+        }
+    )
+
+    assert [f["key"] for f in facets] == ["fidelity_demo_employment_status"]
+    assert facets[0]["value"] is True

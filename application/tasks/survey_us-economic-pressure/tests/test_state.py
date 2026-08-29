@@ -27,6 +27,10 @@ QUESTIONNAIRE_CANDIDATES = (
 PERSONA_CANDIDATES = (
     Path(os.environ.get("MATRIX_PERSONA_PATH", "/nonexistent")),
     Path("/app/input/persona.yaml"),
+    # Native host profiles (json_survey) never mount /app; the trial's input
+    # sits beside its output dir. Without this the fidelity check silently
+    # reads an empty persona and emits no facets at all.
+    OUTPUT_DIR.parent / "input" / "persona.yaml",
 )
 
 # Ordered scales for the two parallel perception items. The construct of
