@@ -32,6 +32,7 @@ DOMAIN_COMMERCE = "commerce"
 DOMAIN_COMMERCE_RETAIL = "commerce-retail"
 DOMAIN_ARTS_CULTURE = "arts-culture"
 DOMAIN_EDUCATION = "education"
+DOMAIN_ECONOMICS = "economics"
 
 APPLICATION_TASK_METADATA: dict[str, dict[str, object]] = {
     "chat_meal-planning-nutrition": {
@@ -201,6 +202,18 @@ APPLICATION_TASK_METADATA: dict[str, dict[str, object]] = {
             "toys and games",
             "retail",
             "product perturbation",
+        ],
+    },
+    "survey_us-economic-pressure": {
+        "type": "survey",
+        "domain": DOMAIN_ECONOMICS,
+        "tags": [
+            "household finance",
+            "cost of living",
+            "economic sentiment",
+            "financial fragility",
+            "US adults",
+            "benchmark anchored",
         ],
     },
     "web_mit-ocw-course-choice": {

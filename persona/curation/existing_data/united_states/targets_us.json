@@ -1,0 +1,176 @@
+{
+  "scope": "united_states_adults_18plus",
+  "status": "draft_unverified",
+  "base_population": {
+    "resident_population_2023": 334900000,
+    "adults_18plus_2023": 262000000,
+    "note": "All shares in this file are conditional on the 18+ civilian population, NOT the total resident population. The schema's child brackets ('Under 5', '5-12', '13-17') are deliberately absent from age_bracket. See the 'adult_only' warning below - a pool containing minors MUST be filtered before raking or every adult margin is silently skewed."
+  },
+  "notes": "Shares are population shares within US adults 18+, so each calibrated dimension sums to 1.0 over the schema categories it supplies. calibration.rake_weights normalizes each margin over the codes actually supplied and treats negative codes as missing, so a dimension that omits a category which really exists in the population does NOT degrade gracefully - it reallocates that category's mass across the categories that remain. Every dimension here therefore enumerates all schema values, using a small explicit share rather than omission for rare categories. Dimensions that cannot be responsibly enumerated are left with empty shares and are skipped by the raking script.",
+  "adult_only": {
+    "required_filter": "age_bracket in [18-24, 25-34, 35-44, 45-54, 55-64, 65-74, 75-84, 85+]",
+    "reason": "rake_weights counts every row with a non-negative code in the margin denominator. A minor carries a valid age code, so leaving minors in the pool inflates the denominator and pushes all adult shares down uniformly while the minors keep unadjusted weight.",
+    "enforced_by": "persona/curation/existing_data/united_states/rake_us_adults.py"
+  },
+  "geography": {
+    "note": "The MatrAIx schema has no country dimension. The finest geographic value is region='North America', which pools the United States, Canada and Mexico. There is no way to isolate US residents from persona dimensions alone.",
+    "operationalization": "The raking script selects region='North America' and, optionally (--us-culture), narrows to cult_united_states in [Native, Lived there]. Both are proxies. 'North America' over-covers (Canada ~40M, Mexico ~130M adults); the cult_united_states narrowing under-covers, because that dimension is sparsely populated and defaults to 'Unfamiliar'.",
+    "consequence": "Results from this target set describe 'North American adults reweighted to US marginals', not a US probability sample. Do not report them as US population estimates."
+  },
+  "provenance": {
+    "authored": "2026-08-26",
+    "method": "Hand-authored from recalled published figures. NOT machine-derived from primary microdata.",
+    "network_note": "The authoring environment had no route to census.gov, api.census.gov, bls.gov or fred.stlouisfed.org (all blocked by the sandbox egress proxy), so no figure here was fetched or reconciled against a source file.",
+    "verification_status": "UNVERIFIED. Shares are approximations good to roughly +/-1-2 percentage points on the well-measured dimensions and materially worse on the ones marked quality 'low'. They are fit for pilot work, method development and plumbing tests. Regenerate from primary sources before any published estimate.",
+    "regeneration": "Rebuild from ACS 1-year PUMS (age, sex, educational attainment, race/Hispanic origin) and CPS ASEC (employment, marital status), following the pattern of persona/curation/existing_data/scripts/derive_targets_ph.py. The urbanicity and socioeconomic_band splits are not census constructs and need an explicit crosswalk decision, not a table lookup."
+  },
+  "sources": {
+    "age_sex": "US Census Bureau, Vintage 2023 national population estimates by age and sex; adult base derived as total resident population minus under-18.",
+    "education": "US Census Bureau, Educational Attainment in the United States (CPS ASEC table series), population 25 and over.",
+    "race_ethnicity": "US Census Bureau, ACS 2023 1-year estimates, race and Hispanic origin, adult population.",
+    "urbanicity": "US Census Bureau 2020 Census urban/rural classification (80% urban / 20% rural) for the urban-rural split; the within-urban decomposition is a MatrAIx schema-prior judgment, not a census figure.",
+    "employment": "Bureau of Labor Statistics, Current Population Survey, 2023 annual averages (labor force participation, full/part-time status, self-employment).",
+    "marital_status": "US Census Bureau, America's Families and Living Arrangements (CPS), 2023, population 18 and over.",
+    "political_lean": "Gallup annual ideology averages (conservative / moderate / liberal), 2023. Not an official statistic and not a census margin."
+  },
+  "default_rake_dimensions": [
+    "age_bracket",
+    "gender_identity",
+    "highest_education",
+    "demo_ethnicity_broad",
+    "urbanicity"
+  ],
+  "dimensions": {
+    "age_bracket": {
+      "weight": 1.0,
+      "quality": "high",
+      "reference": "Census Vintage 2023 age estimates, renormalized to the 18+ base",
+      "coverage": "complete over adults - child brackets deliberately absent, see adult_only",
+      "shares": {
+        "18-24": 0.1163,
+        "25-34": 0.1739,
+        "35-44": 0.1709,
+        "45-54": 0.1556,
+        "55-64": 0.1602,
+        "65-74": 0.1278,
+        "75-84": 0.0706,
+        "85+": 0.0247
+      }
+    },
+    "gender_identity": {
+      "weight": 0.5,
+      "quality": "medium",
+      "reference": "Census binary sex for adults (women slightly over half, rising with age); non-binary tail from Gallup/Pew LGBT identification estimates",
+      "coverage": "The census sex item cannot enumerate Non-binary / Self-described / Prefer not to say. Unlike the Philippines target set, these are given small explicit shares rather than omitted, because omission would reallocate their mass to Woman/Man. The three tail values are estimates, not measurements.",
+      "shares": {
+        "Woman": 0.503,
+        "Man": 0.489,
+        "Non-binary": 0.005,
+        "Self-described": 0.002,
+        "Prefer not to say": 0.001
+      }
+    },
+    "highest_education": {
+      "weight": 1.0,
+      "quality": "medium",
+      "reference": "CPS educational attainment, population 25+, crosswalked to the 10-value schema ladder",
+      "coverage": "Two known distortions. (1) Base mismatch: published attainment is for 25+, but this target is applied to 18+, so it understates the share of 18-24s still short of a degree. (2) 'Vocational / cert' is not a CPS category; its share is carved out of 'some college, no degree' by judgment. 'Postdoc' is a position rather than an attainment level and is given a near-zero placeholder so it is enumerated rather than omitted.",
+      "shares": {
+        "No formal": 0.008,
+        "Primary": 0.039,
+        "Secondary": 0.313,
+        "Vocational / cert": 0.055,
+        "Some college": 0.141,
+        "Associate's": 0.089,
+        "Bachelor's": 0.21,
+        "Master's": 0.106,
+        "Doctorate": 0.038,
+        "Postdoc": 0.001
+      }
+    },
+    "demo_ethnicity_broad": {
+      "weight": 1.0,
+      "quality": "medium",
+      "reference": "ACS 2023 race and Hispanic origin for adults, crosswalked to the schema's 10 broad groups",
+      "coverage": "The schema's categories do not align with OMB race/ethnicity. Two judgment calls dominate: the single ACS 'Asian' group (~6.2% of adults) is split into East / South / Southeast Asian using national-origin composition, and 'Middle Eastern' is carved out of the census 'White' category, which is where MENA respondents are currently tabulated. Hispanic/Latino is treated as mutually exclusive with the race groups.",
+      "shares": {
+        "White / European": 0.6,
+        "Black / African": 0.122,
+        "Hispanic / Latino": 0.179,
+        "East Asian": 0.025,
+        "South Asian": 0.017,
+        "Southeast Asian": 0.02,
+        "Middle Eastern": 0.006,
+        "Indigenous": 0.007,
+        "Pacific Islander": 0.002,
+        "Multiracial": 0.022
+      }
+    },
+    "urbanicity": {
+      "weight": 0.5,
+      "quality": "low",
+      "reference": "2020 Census urban (80%) / rural (20%) anchor; within-urban decomposition is a schema-prior judgment",
+      "coverage": "Only the 80/20 urban-rural split is an official figure. The Census Bureau does not define 'suburban', and the Dense urban / Suburban / Small town decomposition below is a judgment call that self-identification surveys (which run closer to 27/55/19 urban/suburban/rural) would not reproduce. Treat this margin as shaping, not measurement; it is included in the defaults because urbanicity strongly conditions cost-of-living items, but it is the weakest of the five.",
+      "shares": {
+        "Dense urban": 0.26,
+        "Suburban": 0.42,
+        "Small town": 0.12,
+        "Rural": 0.199,
+        "Nomadic / remote": 0.001
+      }
+    },
+    "demo_employment_status": {
+      "weight": 0.5,
+      "quality": "low",
+      "reference": "BLS CPS 2023 annual averages, forced into the schema's single-valued status",
+      "coverage": "ADVISORY - not in default_rake_dimensions. CPS statuses overlap in ways the schema does not: a self-employed person is also employed, students often work part-time, and 'Gig / freelance' has no CPS definition. Forcing one primary status per persona makes these shares a modelling choice rather than a measured marginal.",
+      "shares": {
+        "Full-time": 0.465,
+        "Part-time": 0.1,
+        "Self-employed": 0.06,
+        "Gig / freelance": 0.02,
+        "Student": 0.06,
+        "Unemployed": 0.025,
+        "Retired": 0.215,
+        "Homemaker": 0.055
+      }
+    },
+    "demo_marital_status": {
+      "weight": 0.5,
+      "quality": "low",
+      "reference": "CPS 2023 marital status for adults 18+, with the never-married group subdivided by judgment",
+      "coverage": "ADVISORY - not in default_rake_dimensions. CPS measures Married / Widowed / Divorced / Separated / Never married. The schema's 'Single', 'In a relationship', 'Engaged' and 'Domestic partnership' are a subdivision of never-married that CPS does not publish; that subdivision is estimated.",
+      "shares": {
+        "Single": 0.25,
+        "In a relationship": 0.065,
+        "Engaged": 0.015,
+        "Married": 0.481,
+        "Domestic partnership": 0.01,
+        "Separated": 0.019,
+        "Divorced": 0.105,
+        "Widowed": 0.055
+      }
+    },
+    "political_lean": {
+      "weight": 0.25,
+      "quality": "low",
+      "reference": "Gallup 2023 ideology averages, expanded from a 3-point to the schema's 6-point scale",
+      "coverage": "ADVISORY - not in default_rake_dimensions. Ideology is self-reported and not an official statistic. Gallup measures conservative/moderate/liberal; splitting those into Left / Center-left / Center / Center-right / Right and adding 'Apolitical' is an interpolation. Calibrating economic-attitude research on a political margin also risks assuming part of what the study is trying to observe - opt in deliberately.",
+      "shares": {
+        "Left": 0.1,
+        "Center-left": 0.15,
+        "Center": 0.34,
+        "Center-right": 0.2,
+        "Right": 0.16,
+        "Apolitical": 0.05
+      }
+    },
+    "socioeconomic_band": {
+      "weight": 0.0,
+      "quality": "none",
+      "reference": "no official marginal exists for this construct",
+      "coverage": "DELIBERATELY EMPTY, and the safe state. 'Low income' through 'High income' is a subjective band with no published US distribution to calibrate against - Pew's lower/middle/upper tiers (roughly 30/51/19 of households) are household-level, tier-defined by local median income, and do not map onto five persona-level bands. Supplying a guess here would be actively harmful for an economic-pressure study, because household finances are the dependent variable: raking on them would bake the finding into the sample. The raking script skips a dimension whose shares are empty.",
+      "shares": {}
+    }
+  }
+}
