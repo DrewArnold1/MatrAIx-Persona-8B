@@ -254,11 +254,32 @@ def retrieve_personas(
     service = PersonaPoolService.from_repo(repo_root=repo_root)
 
     if plan.persona_ids:
+        # Hand-picked ids from the 1M root are preview-only until materialized:
+        # the root holds Parquet, not the per-persona YAML plus manifest.json
+        # that load_manifest and Harbor read, so resolving them later fails with
+        # "unknown persona". Write a cohort first and point the job at it, the
+        # same way harbor_job_service does for a Playground launch.
+        from backend.service.persona_1m_pool import (
+            is_production_1m_root,
+            materialize_production_1m_persona_ids,
+        )
+
+        persona_ids = list(plan.persona_ids)
+        persona_pool = plan.persona_pool
+        if is_production_1m_root(persona_pool):
+            materialized = materialize_production_1m_persona_ids(
+                repo_root=repo_root,
+                persona_ids=persona_ids,
+                seed=plan.seed,
+            )
+            persona_pool = str(materialized["pool"])
+            persona_ids = [str(pid) for pid in materialized["personaIds"]]
+
         return PersonaRetrievalResult(
-            persona_pool=plan.persona_pool,
-            persona_ids=list(plan.persona_ids),
-            matched_count=len(plan.persona_ids),
-            sample_size=len(plan.persona_ids),
+            persona_pool=persona_pool,
+            persona_ids=persona_ids,
+            matched_count=len(persona_ids),
+            sample_size=len(persona_ids),
             seed=plan.seed,
             sources=list(plan.sources),
             dimension_filters=dict(plan.dimension_filters),

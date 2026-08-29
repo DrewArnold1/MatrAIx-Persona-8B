@@ -126,3 +126,85 @@ def test_retrieve_personas_filters_dev_sample() -> None:
     assert len(result.persona_ids) == 3
     assert result.matched_count >= 3
     assert result.persona_pool.endswith("matraix-persona-dev-sample")
+
+
+def test_explicit_ids_on_a_yaml_pool_are_passed_through(tmp_path: Path) -> None:
+    """A pool that already has persona YAML needs no materialization step."""
+    plan = build_retrieval_plan(
+        task_path="application/tasks/example-survey_product-feedback",
+        repo_root=REPO_ROOT,
+        default_pool="persona/datasets/matraix-persona-dev-sample",
+        dataset="persona/datasets/matraix-persona-dev-sample",
+        persona_ids=["persona-a", "persona-b"],
+        seed=42,
+        use_strategy=False,
+    )
+    result = retrieve_personas(plan, repo_root=REPO_ROOT)
+    assert result.persona_ids == ["persona-a", "persona-b"]
+    assert result.persona_pool == "persona/datasets/matraix-persona-dev-sample"
+
+
+def test_explicit_ids_on_the_1m_root_are_materialized(monkeypatch, tmp_path: Path) -> None:
+    """Hand-picked 1M ids must become a cohort before the job is built.
+
+    The 1M root holds Parquet, not the per-persona YAML plus manifest.json that
+    load_manifest and Harbor read. Returning the root unchanged made
+    resolve_persona_entries fail with "unknown persona", which is how a raked
+    cohort could not be launched at all.
+    """
+    calls: dict[str, object] = {}
+
+    def fake_materialize(*, repo_root, persona_ids, seed):
+        calls["persona_ids"] = list(persona_ids)
+        calls["seed"] = seed
+        return {
+            "pool": "persona/datasets/matraix-persona-1m/cohorts/cohort-abc123",
+            "personaIds": list(persona_ids),
+        }
+
+    from backend.service import persona_1m_pool
+
+    monkeypatch.setattr(
+        persona_1m_pool, "materialize_production_1m_persona_ids", fake_materialize
+    )
+
+    plan = build_retrieval_plan(
+        task_path="application/tasks/survey_us-economic-pressure",
+        repo_root=REPO_ROOT,
+        default_pool="persona/datasets/matraix-persona-1m",
+        dataset="persona/datasets/matraix-persona-1m",
+        persona_ids=["wiki-aaaaaaaaaaaa", "gss-bbbbbbbbbbbb"],
+        seed=42,
+        use_strategy=False,
+    )
+    result = retrieve_personas(plan, repo_root=REPO_ROOT)
+
+    assert result.persona_pool == "persona/datasets/matraix-persona-1m/cohorts/cohort-abc123"
+    assert result.persona_ids == ["wiki-aaaaaaaaaaaa", "gss-bbbbbbbbbbbb"]
+    assert calls["persona_ids"] == ["wiki-aaaaaaaaaaaa", "gss-bbbbbbbbbbbb"]
+    assert calls["seed"] == 42
+
+
+def test_an_already_materialized_cohort_is_not_re_materialized(monkeypatch) -> None:
+    """Only the bare 1M root needs materializing; a cohort path is already YAML."""
+    from backend.service import persona_1m_pool
+
+    def explode(**kwargs):  # pragma: no cover - must not be reached
+        raise AssertionError("a cohort pool must not be materialized again")
+
+    monkeypatch.setattr(
+        persona_1m_pool, "materialize_production_1m_persona_ids", explode
+    )
+
+    cohort = "persona/datasets/matraix-persona-1m/cohorts/cohort-abc123"
+    plan = build_retrieval_plan(
+        task_path="application/tasks/survey_us-economic-pressure",
+        repo_root=REPO_ROOT,
+        default_pool=cohort,
+        dataset=cohort,
+        persona_ids=["wiki-aaaaaaaaaaaa"],
+        seed=42,
+        use_strategy=False,
+    )
+    result = retrieve_personas(plan, repo_root=REPO_ROOT)
+    assert result.persona_pool == cohort
