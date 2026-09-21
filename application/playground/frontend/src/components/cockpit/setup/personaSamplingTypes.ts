@@ -1,6 +1,30 @@
 /** Persona sampling state shared by the cockpit left rail. */
 
 import type { TaskPersonaStrategy } from "@/lib/types";
+import {
+  PERSONA_PRODUCTION_1M_POOL,
+  PERSONA_SAMPLE_SIZE_MAX_DEV,
+  PERSONA_SAMPLE_SIZE_MAX_PRODUCTION,
+} from "@/lib/types";
+
+/**
+ * Max sample size for a pool. The dev sample is small enough that a large
+ * request is a mistake; the production 1M coreset supports cohort-scale runs
+ * (n=1000 and up), so clamping it to the dev ceiling silently shrinks a cohort
+ * the user deliberately sized.
+ */
+export function sampleSizeMaxForPool(pool: string | null | undefined): number {
+  const value = (pool ?? "").trim();
+  const isProduction1m =
+    value === PERSONA_PRODUCTION_1M_POOL || value.includes("/matraix-persona-1m/cohorts/");
+  return isProduction1m ? PERSONA_SAMPLE_SIZE_MAX_PRODUCTION : PERSONA_SAMPLE_SIZE_MAX_DEV;
+}
+
+/** Clamp a strategy-supplied sample size against the ceiling its pool allows. */
+export function clampStrategySampleSize(value: number, pool: string | null | undefined): number {
+  if (!Number.isFinite(value)) return 2;
+  return Math.min(sampleSizeMaxForPool(pool), Math.max(2, Math.round(value)));
+}
 
 export type PersonaSamplingMode = "single" | "random" | "stratified" | "all";
 

@@ -1384,6 +1384,54 @@ def create_app(catalog_path: Optional[str] = None) -> FastAPI:
 
         return {"instruments": list_survey_questionnaires(repo_root=services.harbor_jobs.repo_root)}
 
+    @app.post(
+        "/api/survey-eval/adhoc-questions",
+        response_model=schemas.AdhocSurveyQuestionResponse,
+        tags=["survey-eval"],
+    )
+    def create_adhoc_survey_question(
+        body: schemas.AdhocSurveyQuestionRequest,
+        services: AppState = Depends(get_services),
+    ) -> Dict[str, Any]:
+        """Materialize a runnable survey task from one ad-hoc question.
+
+        The generated task is an ordinary ``application/tasks/survey_*`` folder,
+        so it launches through ``POST /api/harbor/jobs`` like any other survey
+        task. Nothing downstream distinguishes it from an authored one.
+        """
+        from backend.service.adhoc_survey_task import (
+            DEFAULT_SEGMENT_DIMENSIONS,
+            AdhocSurveyTaskError,
+            materialize_adhoc_survey_task,
+        )
+
+        try:
+            task = materialize_adhoc_survey_task(
+                repo_root=services.harbor_jobs.repo_root,
+                question=body.question,
+                options=body.options,
+                title=body.title,
+                context_note=body.contextNote,
+                sample_size=body.sampleSize,
+                segment_dimensions=body.segmentDimensions or DEFAULT_SEGMENT_DIMENSIONS,
+                ask_rationale=body.askRationale,
+                overwrite=body.overwrite,
+            )
+        except AdhocSurveyTaskError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        payload = task.to_dict()
+        # Say this on every response rather than in docs the caller may not
+        # read. An ad-hoc instrument has no benchmark anchoring, and the pool
+        # has no country dimension, so both caveats travel with the result.
+        payload["caveat"] = (
+            "Ad-hoc instrument: wording is not matched to a published survey, so "
+            "its marginals cannot be checked against a real benchmark. Cohorts "
+            "are North American adults reweighted to US marginals, not a US "
+            "probability sample."
+        )
+        return payload
+
     @app.get(
         "/api/survey-eval/harbor-tasks",
         response_model=schemas.SurveyHarborTasksResponse,

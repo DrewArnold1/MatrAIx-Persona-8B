@@ -20,6 +20,7 @@ import {
   type CockpitPersonaSetupRecord,
 } from "./cockpitPersonaSetupStorage";
 import {
+  clampStrategySampleSize,
   emptyPersonaDimensionFilters,
   readStrategySampling,
   type PersonaDimensionFilters,
@@ -209,7 +210,12 @@ export function useSetupPersonaSampling(
     } else {
       setPerCell(null);
       if (sampling.sampleSize != null) {
-        setSampleSize(Math.min(500, Math.max(2, sampling.sampleSize)));
+        setSampleSize(
+          clampStrategySampleSize(
+            sampling.sampleSize,
+            sanitizePersonaPool(strategy.pool ?? "") || personaPool,
+          ),
+        );
       }
     }
     setGroupFilters({
@@ -235,7 +241,9 @@ export function useSetupPersonaSampling(
             )
           : {},
     });
-  }, [normalizedPath, strategyQuery.data, useTaskDefaultStrategy]);
+    // personaPool only supplies the sample-size ceiling when the strategy names
+    // no pool of its own; appliedKeyRef keeps a pool change from re-applying.
+  }, [normalizedPath, personaPool, strategyQuery.data, useTaskDefaultStrategy]);
 
   useEffect(() => {
     const path = normalizedPath;

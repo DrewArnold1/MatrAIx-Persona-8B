@@ -218,6 +218,28 @@ The questionnaire id must match `input/questionnaire.yaml` → `id`.
 
 Restart the Playground backend after registry changes.
 
+## Ad-hoc survey tasks
+
+A question asked at runtime does not need a hand-authored folder.
+`application/playground/backend/service/adhoc_survey_task.py` writes one, and
+`POST /api/survey-eval/adhoc-questions` or
+[`ask_america.py`](../../application/scripts/ask_america.py) drives it.
+
+Generated folders are named `survey_adhoc-<digest>` and are gitignored. They
+need no registry entry: `survey_task_content.py` falls back to globbing
+`application/tasks/survey_*` and reading the id out of `input/questionnaire.yaml`,
+so the explicit map above is only for tasks you want listed in a fixed order.
+
+Each generated task copies the task-agnostic verifier from
+[`application/task-spec/survey/verifier/`](../../application/task-spec/survey/verifier/).
+That verifier derives each answer's field kind from the questionnaire's own
+`questionType`, so it works for any instrument. Write a task-owned verifier only
+when you need instrument-specific validation or derived constructs — see
+`survey_us-economic-pressure` for both.
+
+To keep an ad-hoc instrument, copy its folder to a `survey_*` name and commit
+it. Regenerating is otherwise the expected way to change one.
+
 ## Job recipes
 
 | Config path | Use |

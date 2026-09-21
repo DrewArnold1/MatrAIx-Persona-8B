@@ -53,6 +53,20 @@ Path taxonomy (picker vs on-disk caches):
 Playground / API fields: `personaPool`, `useEntirePool`, `sampleSize`,
 `nConcurrentTrials`. Reference: [playground-api.md](../application/playground-api.md).
 
+---
+
+## Concurrency
+
+`generate_application_job.py` scales `n_concurrent_trials` with the cohort:
+roughly a quarter of the cohort size, capped at 16 (4 for `force_docker`, where
+each trial holds a container). Override with `--concurrency N`.
+
+Raise it only as far as the model provider's rate limit allows. Past that point
+extra parallelism turns into retries rather than throughput, and a 429 storm
+mid-run is harder to recover from than a slower run. A 1,000-trial survey at one
+trial at a time is hours to days of wall clock, which is the failure this
+default exists to prevent.
+
 Record the persona path (and the Hugging Face revision, if you used one) so the
 batch is reproducible.
 

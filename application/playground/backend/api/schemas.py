@@ -526,6 +526,36 @@ class SurveyInstrumentsResponse(BaseModel):
     instruments: List[SurveyInstrument]
 
 
+class AdhocSurveyQuestionRequest(BaseModel):
+    """``POST /api/survey-eval/adhoc-questions`` body.
+
+    Turns one question asked at runtime into a real, runnable survey task.
+    Omit ``options`` for a free-text question — inventing answer options for a
+    question nobody wrote options for puts the framing being measured into the
+    instrument itself.
+    """
+
+    question: str
+    options: Optional[List[str]] = None
+    title: str = ""
+    contextNote: str = ""
+    sampleSize: int = 1000
+    segmentDimensions: Optional[List[str]] = None
+    askRationale: bool = False
+    overwrite: bool = False
+
+
+class AdhocSurveyQuestionResponse(BaseModel):
+    """``POST /api/survey-eval/adhoc-questions`` payload."""
+
+    taskPath: str
+    questionnaireId: str
+    folderName: str
+    questionnaire: Dict[str, Any]
+    reused: bool
+    caveat: str = ""
+
+
 class SurveyHarborTask(BaseModel):
     """Summary row for ``GET /api/survey-eval/harbor-tasks``.
 

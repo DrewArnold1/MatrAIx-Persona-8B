@@ -293,6 +293,12 @@ configs/jobs/persona-job-recipe/*.launch.json
 # Trial verifier output accidentally written under task folders during local runs
 application/tasks/*/verifier/
 
+# Ad-hoc survey tasks generated from a question asked at runtime
+# (application/playground/backend/service/adhoc_survey_task.py). Regenerate
+# rather than commit; copy to a survey_* name to keep an instrument.
+application/tasks/survey_adhoc-*/
+application/tasks/.survey_adhoc-*.partial/
+
 # Playground local runtime cache (Cockpit / harness sessions)
 /data/cache/
 

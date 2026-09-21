@@ -197,6 +197,28 @@ uv run matraix run -c configs/jobs/application-task-job-recipe/example-survey-pr
 Batch (`--sample-size N`), filters, and chat / web / os-app examples:
 [docs/quickstart.md](docs/quickstart.md).
 
+### Ask one question of a US-adult cohort
+
+To put a single question to a calibrated cohort without authoring a task by
+hand, `ask_america.py` generates the task, draws the cohort and builds the job:
+
+```bash
+uv run python application/scripts/ask_america.py \
+  "Is the country on the right track?" \
+  --option "Right track" --option "Wrong track" --option "Not sure" \
+  --sample-size 1000
+```
+
+Omit `--option` for a free-text question; answers then aggregate as themes
+rather than percentages. Add `--task-only` to write the task and stop.
+
+> **Read the output as a simulated distribution, not a survey estimate.** The
+> schema has no country dimension, so a cohort is North American adults
+> reweighted to US marginals; `targets_us.json` is `status=draft_unverified`;
+> and an ad-hoc question's wording is not matched to a published instrument, so
+> its marginals cannot be checked against a real benchmark. See
+> [united_states/README.md](persona/curation/existing_data/united_states/README.md).
+
 ## Docs
 
 **[MatrAIx Handbook](docs/README.md)** — guides, persona / application / environment docs.

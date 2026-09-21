@@ -4,6 +4,7 @@ import { PERSONA_BENCH_POOL, PERSONA_CARD_PREVIEW_LIMIT, PERSONA_UI_ID_LIST_MAX 
 
 import { readCockpitBatch } from "./cockpitBatchStorage";
 import {
+  clampStrategySampleSize,
   emptyPersonaDimensionFilters,
   readStrategySampling,
   type PersonaDimensionFilters,
@@ -264,6 +265,13 @@ export function setupFromPersonaStrategy(
   const sampling = readStrategySampling(strategy);
   next.samplingMode = sampling.mode;
 
+  // Resolve the pool before clamping the sample size: the ceiling depends on
+  // it, and the strategy's own pool wins over whatever the base record held.
+  const resolvedPool =
+    typeof strategy.pool === "string" && strategy.pool.trim()
+      ? sanitizePersonaPool(strategy.pool)
+      : next.personaPool;
+
   next.groupFilters = {
     sources: Array.isArray(strategy.sources)
       ? strategy.sources.filter(
@@ -301,12 +309,12 @@ export function setupFromPersonaStrategy(
   } else {
     next.perCell = null;
     if (sampling.sampleSize != null) {
-      next.sampleSize = Math.min(500, Math.max(2, Math.round(sampling.sampleSize)));
+      next.sampleSize = clampStrategySampleSize(sampling.sampleSize, resolvedPool);
     }
   }
 
   if (typeof strategy.pool === "string" && strategy.pool.trim()) {
-    next.personaPool = sanitizePersonaPool(strategy.pool);
+    next.personaPool = resolvedPool;
   }
 
   // Fresh strategy apply clears prior preview selection and locks custom filters.

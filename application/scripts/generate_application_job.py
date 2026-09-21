@@ -42,6 +42,30 @@ from persona_retrieval import (  # noqa: E402
 DEFAULT_JOBS_DIR = REPO_ROOT / "configs" / "jobs" / "application-task-job-recipe"
 _EXECUTION_MODES = frozenset({"auto", "force_docker", "smoke"})
 
+# A 1000-trial survey run at one trial at a time is hours to days of wall clock,
+# which is how a cohort-scale job quietly becomes unrunnable. Scale with the
+# cohort instead, and cap: past this, the model provider's rate limit is the
+# binding constraint, not local parallelism, and overshooting it turns into
+# retries rather than throughput.
+_MAX_DEFAULT_CONCURRENCY = 16
+# Docker trials each hold a container; parallelism costs memory, not just
+# tokens, so the native profiles get the headroom and Docker does not.
+_MAX_DEFAULT_CONCURRENCY_DOCKER = 4
+
+
+def _default_concurrency(*, sample_size: int, execution_mode: str) -> int:
+    """Pick a sane parallel-trial count for a cohort of this size."""
+    if sample_size <= 1:
+        return 1
+    ceiling = (
+        _MAX_DEFAULT_CONCURRENCY_DOCKER
+        if execution_mode == "force_docker"
+        else _MAX_DEFAULT_CONCURRENCY
+    )
+    # Small cohorts stay near-serial so a failure is easy to read; large ones
+    # get the full ceiling.
+    return max(1, min(ceiling, sample_size // 4 or 1))
+
 
 def _display_path(path: Path) -> str:
     try:
@@ -249,6 +273,19 @@ def main() -> None:
     )
     parser.add_argument("--model-name", default="anthropic/claude-sonnet-4-6")
     parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Trials to run at once (default: scaled to cohort size, capped at "
+            "{}). A serial run of a large cohort takes hours; raise this only "
+            "as far as the model provider's rate limit allows.".format(
+                _MAX_DEFAULT_CONCURRENCY
+            )
+        ),
+    )
+    parser.add_argument(
         "--out",
         type=Path,
         default=None,
@@ -319,6 +356,15 @@ def main() -> None:
     )
     job_name = args.job_name or job_slug
 
+    if args.concurrency is not None and args.concurrency < 1:
+        parser.error("--concurrency must be at least 1")
+    concurrency = args.concurrency or _default_concurrency(
+        sample_size=retrieved.sample_size,
+        execution_mode=execution_mode,
+    )
+    # Never launch more parallel trials than there are trials to run.
+    concurrency = max(1, min(concurrency, max(retrieved.sample_size, 1)))
+
     spec: dict[str, object] = {
         "name": job_slug,
         "stratify_fields": [],  # already resolved to concrete ids
@@ -336,7 +382,7 @@ def main() -> None:
             "job_name": job_name,
             "jobs_dir": "jobs",
             "n_attempts": 1,
-            "n_concurrent_trials": 1,
+            "n_concurrent_trials": concurrency,
             "timeout_multiplier": 1.0,
         },
     }
