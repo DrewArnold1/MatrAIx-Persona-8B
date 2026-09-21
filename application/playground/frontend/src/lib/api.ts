@@ -28,6 +28,8 @@ import type {
   StartChatbotSidecarResponse,
   SurveyInstrumentsResponse,
   SurveyHarborTasksResponse,
+  AdhocSurveyQuestionRequest,
+  AdhocSurveyQuestionResponse,
   ChatbotEvalTasksResponse,
   WebEvalTasksResponse,
   WebTrace,
@@ -500,6 +502,22 @@ export function listSurveyInstruments(): Promise<SurveyInstrumentsResponse> {
 
 export function listSurveyHarborTasks(): Promise<SurveyHarborTasksResponse> {
   return request<SurveyHarborTasksResponse>("/api/survey-eval/harbor-tasks");
+}
+
+/**
+ * Materialize a runnable survey task from one question asked at runtime.
+ *
+ * The generated task is an ordinary survey task, so it appears in
+ * `listSurveyHarborTasks()` right after this resolves — invalidate that query
+ * and select the returned `taskPath`.
+ */
+export function createAdhocSurveyQuestion(
+  body: AdhocSurveyQuestionRequest,
+): Promise<AdhocSurveyQuestionResponse> {
+  return request<AdhocSurveyQuestionResponse>("/api/survey-eval/adhoc-questions", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 
 export function listChatbotEvalTasks(): Promise<ChatbotEvalTasksResponse> {

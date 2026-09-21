@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { useI18n } from "@/i18n/I18nProvider";
@@ -103,6 +103,11 @@ export interface TaskSelectionRailProps {
   tasksLoading?: boolean;
   tasksError?: string | null;
   disabled?: boolean;
+  /**
+   * Opt-in "ask your own question" affordance above the task list.
+   * Only the survey cockpit passes this; every other rail is unchanged.
+   */
+  askQuestionSlot?: ReactNode;
 }
 
 const VIRTUALIZE_THRESHOLD = 30;
@@ -142,6 +147,7 @@ export function TaskSelectionRail({
   tasksLoading,
   tasksError,
   disabled,
+  askQuestionSlot,
 }: TaskSelectionRailProps) {
   const { t } = useI18n();
   const [settingsOpen, setSettingsOpen] = useState<string | null>(null);
@@ -539,6 +545,8 @@ export function TaskSelectionRail({
   return (
     <aside className="glass-panel glass-panel-rail relative flex h-full min-h-0 flex-col rounded-xl p-4">
       <CockpitRailHeader label={t("taskSetup.title")} />
+
+      {askQuestionSlot}
 
       <label className="mb-2.5 flex flex-col gap-1">
         <span className="sr-only">{t("taskSetup.search")}</span>

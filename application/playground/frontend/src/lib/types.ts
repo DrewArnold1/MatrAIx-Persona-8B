@@ -313,6 +313,30 @@ export interface SurveyHarborTasksResponse {
   tasks: SurveyHarborTask[];
 }
 
+/** ``POST /api/survey-eval/adhoc-questions`` body. */
+export interface AdhocSurveyQuestionRequest {
+  question: string;
+  /** Omit for a free-text question; see the response's questionnaire type. */
+  options?: string[] | null;
+  title?: string;
+  contextNote?: string;
+  sampleSize?: number;
+  segmentDimensions?: string[] | null;
+  askRationale?: boolean;
+  overwrite?: boolean;
+}
+
+export interface AdhocSurveyQuestionResponse {
+  taskPath: string;
+  questionnaireId: string;
+  folderName: string;
+  questionnaire: SurveyInstrument;
+  /** True when this exact question was already materialized. */
+  reused: boolean;
+  /** Standing limits of the result. Shown wherever the answer is shown. */
+  caveat: string;
+}
+
 export interface SurveyAnswer {
   questionId: string;
   value: string | number | boolean | string[] | null;

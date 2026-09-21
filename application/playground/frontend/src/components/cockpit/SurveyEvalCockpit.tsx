@@ -17,7 +17,7 @@
  * as before. Only the structure and presentation are rebuilt.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useI18n } from "@/i18n/I18nProvider";
 import { listSurveyHarborTasks, api } from "@/lib/api";
@@ -61,6 +61,8 @@ import { PersonaSamplingRail } from "./setup/PersonaSamplingRail";
 import { resolveCohortSize } from "./setup/personaLaunchFields";
 import { CockpitPipelineDiagram } from "./setup/CockpitPipelineDiagram";
 import { TaskSelectionRail } from "./setup/TaskSelectionRail";
+import { AskQuestionForm } from "./setup/AskQuestionForm";
+import { RailInsetModal } from "./setup/RailInsetModal";
 import { CockpitRunCenter } from "./setup/CockpitRunCenter";
 import { useCockpitLaunch } from "./setup/useCockpitLaunch";
 import {
@@ -170,6 +172,7 @@ export function SurveyEvalCockpit({
   const { run, job, phase, isRunning, error, timedOut, retry, reset, harborPhase, harborJobName, harborTrialName, cancelRun, cancelBusy: harborCancelBusy } =
     useHarborCockpitRun<SurveyEvalJobView>({ taskKind: "survey" });
   const [selectedTaskId, setSelectedTaskId] = useState("");
+  const [askOpen, setAskOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [tab, setTab] = useState<InspectorTab>("evaluation");
   const [exportSnapshot, setExportSnapshot] = useState<{
@@ -192,6 +195,22 @@ export function SurveyEvalCockpit({
   );
 
   const taskCards = useMemo(() => surveyHarborTaskCards(harborTasks), [harborTasks]);
+
+  const queryClient = useQueryClient();
+  // A generated task is an ordinary survey task, so the list picks it up as
+  // soon as it is refetched - the registry cache keys on the tasks directory.
+  const handleQuestionCreated = useCallback(
+    async (created: { taskPath: string }) => {
+      setAskOpen(false);
+      const { tasks } = await queryClient.fetchQuery<SurveyHarborTasksResponse>({
+        queryKey: ["survey-eval-harbor-tasks"],
+        queryFn: listSurveyHarborTasks,
+      });
+      const match = tasks.find((task) => task.taskPath === created.taskPath);
+      if (match) setSelectedTaskId(surveyHarborTaskCards([match])[0]?.id ?? "");
+    },
+    [queryClient],
+  );
   const setupTaskPath =
     taskCards.find((item) => item.id === selectedTaskId)?.taskPath ?? null;
   const selectedTaskDetailQuery = useQuery({
@@ -707,6 +726,38 @@ export function SurveyEvalCockpit({
                 : null
           }
           disabled={setupLocked}
+          askQuestionSlot={
+            <>
+              <button
+                type="button"
+                disabled={setupLocked}
+                onClick={() => setAskOpen(true)}
+                className={`mb-2.5 flex w-full items-center gap-2 rounded-lg border border-dashed border-primary/50 px-3 py-2.5 text-left text-[13px] text-text-variant transition hover:border-primary hover:bg-primary/10 hover:text-text-main disabled:cursor-not-allowed disabled:opacity-50 ${FOCUS_RING}`}
+              >
+                <Sym name="help" size={18} className="text-primary" />
+                <span className="min-w-0 flex-1">
+                  <span className="block font-semibold text-text-main">
+                    {t("askQuestion.entry.title")}
+                  </span>
+                  <span className="block text-[12px] leading-snug text-text-dim">
+                    {t("askQuestion.entry.subtitle")}
+                  </span>
+                </span>
+              </button>
+              <RailInsetModal
+                open={askOpen}
+                title={t("askQuestion.modal.title")}
+                subtitle={t("askQuestion.modal.subtitle")}
+                onClose={() => setAskOpen(false)}
+              >
+                <AskQuestionForm
+                  onCreated={handleQuestionCreated}
+                  onCancel={() => setAskOpen(false)}
+                  disabled={setupLocked}
+                />
+              </RailInsetModal>
+            </>
+          }
         />
         )
       }
