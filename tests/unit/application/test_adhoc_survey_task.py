@@ -247,3 +247,30 @@ def test_context_note_reaches_the_respondent_context(fake_repo: Path) -> None:
     )
     context = (task.task_dir / "input" / "context.md").read_text(encoding="utf-8")
     assert "It is October 2026." in context
+
+
+def test_task_name_carries_the_question(fake_repo: Path) -> None:
+    """Playground builds the picker's card title from [task].name.
+
+    Without the question in the name, every generated task shows up in the
+    task picker as "Adhoc 06599d5ceb1e", which is unusable for choosing one.
+    """
+    task = materialize_adhoc_survey_task(
+        repo_root=fake_repo,
+        question="Is the country on the right track?",
+        options=["Yes", "No"],
+    )
+    task_toml = (task.task_dir / "task.toml").read_text(encoding="utf-8")
+    assert 'name = "application/ask-is-the-country-on-the-right-track-' in task_toml
+
+
+def test_task_name_stays_distinct_for_similar_questions(fake_repo: Path) -> None:
+    first = materialize_adhoc_survey_task(
+        repo_root=fake_repo, question="Right track?", options=["Yes", "No"]
+    )
+    second = materialize_adhoc_survey_task(
+        repo_root=fake_repo, question="Right track?", options=["Yes", "No", "Unsure"]
+    )
+    first_name = (first.task_dir / "task.toml").read_text(encoding="utf-8")
+    second_name = (second.task_dir / "task.toml").read_text(encoding="utf-8")
+    assert first_name != second_name

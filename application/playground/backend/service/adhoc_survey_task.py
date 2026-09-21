@@ -133,6 +133,16 @@ def _digest(payload: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]
 
 
+def _task_name_for(question: str, digest: str) -> str:
+    """Harbor task name, which Playground turns into the picker's card title.
+
+    Keeps the question in the name so the card reads as the question, and keeps
+    a short digest so two questions that slug alike stay distinct.
+    """
+    slug = _slug(question, max_length=56) or "question"
+    return "ask-{}-{}".format(slug, digest[:6])
+
+
 def _title_from_question(question: str) -> str:
     text = " ".join(question.split())
     if len(text) <= 72:
@@ -359,9 +369,12 @@ def materialize_adhoc_survey_task(
     tags = ", ".join(
         '"{}"'.format(tag) for tag in ("ad-hoc", "generated", "single question")
     )
+    # Playground derives a task's display title from [task].name, not from the
+    # instruction heading, so the question has to live in the name or every
+    # generated task shows up in the picker as "Adhoc 06599d5ceb1e".
     (staging / "task.toml").write_text(
         _TASK_TOML_TEMPLATE.format(
-            task_name="adhoc-{}".format(digest),
+            task_name=_task_name_for(prompt, digest),
             domain="general",
             tags=tags,
         ),
