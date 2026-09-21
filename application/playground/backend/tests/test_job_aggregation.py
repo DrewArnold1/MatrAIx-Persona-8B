@@ -410,10 +410,11 @@ def test_yaml_yes_no_choices_not_boolified(tmp_path: Path) -> None:
     )
     facets = {facet["facetKey"]: facet for facet in feedback["facets"]}
     assert facets["hcp_delisting_handled"]["categories"] == ["yes", "partially", "no"]
-    # Authored enum value is kept as-is (lowercased only).
-    assert facets["hcp_delisting_handled"]["categorical"]["counts"] == [
-        {"value": "true", "count": 1}
-    ]
+    # Authored enum value is kept as-is (lowercased only). Asserted on value
+    # and count alone: the row also carries share / ciLow / ciHigh, which this
+    # test is not about.
+    counts = facets["hcp_delisting_handled"]["categorical"]["counts"]
+    assert [(row["value"], row["count"]) for row in counts] == [("true", 1)]
     assert facets["need_constraint_satisfaction"]["label"] == (
         "Overall, did the assistant meet what you needed?"
     )

@@ -65,6 +65,7 @@ import {
   humanizeAnalysisStatus,
   humanizeAnalysisTitle,
   humanizeFacetLabel,
+  isAdhocSurveyTaskPath,
   likertPointLabel,
   type HarborReportTranslate,
 } from "./harborReportPresentation";
@@ -1184,8 +1185,15 @@ function FacetCategoricalDistribution({ facet }: { facet: AggregationField }) {
         {label}
       </div>
       <CountBars
-        items={counts.map((entry) => ({ label: formatBucketLabel(entry.value, t), count: entry.count }))}
+        items={counts.map((entry) => ({
+          label: formatBucketLabel(entry.value, t),
+          count: entry.count,
+          share: entry.share,
+          ciLow: entry.ciLow,
+          ciHigh: entry.ciHigh,
+        }))}
         total={total}
+        respondentCount={facet.categorical?.respondentCount ?? null}
         compact
         showShare
       />
@@ -1637,6 +1645,21 @@ type CountBarItem = {
   label: string
   count: number
   detail?: string | null
+  /**
+   * Share of respondents (0-1) as aggregation computed it. Present with
+   * `ciLow`/`ciHigh` and computed against the same base, so a select-all
+   * question's percentage and its interval cannot disagree - recomputing the
+   * share here from `count / total` would divide by selections instead.
+   */
+  share?: number | null
+  /** Wilson 95% bounds as shares (0-1), when aggregation supplied them. */
+  ciLow?: number | null
+  ciHigh?: number | null
+}
+
+/** "41-47%" - the interval as points, which is how a margin of error is read. */
+function formatInterval(low: number, high: number): string {
+  return `${Math.round(low * 100)}–${Math.round(high * 100)}%`
 }
 
 function formatNumericalSummary(field: AggregationField | null, suffix = ""): string {
@@ -2388,6 +2411,29 @@ function PersonaDistributionExplorer({
           {t("reports.report.noSegmentBreakdown")}
         </p>
       )}
+    </div>
+  )
+}
+
+/**
+ * Standing limits of an ad-hoc run, shown with the numbers themselves.
+ *
+ * Deliberately not `data-pdf-ignore`: the exported PDF is the copy most
+ * likely to be forwarded, so it is the copy that most needs the caveat.
+ */
+function AdhocCaveatBanner() {
+  const { t } = useI18n()
+  return (
+    <div className="mt-2.5 flex items-start gap-2 rounded-xl border border-warn/40 bg-warn/10 px-3 py-2.5">
+      <Sym name="info" size={18} fill={1} className="mt-0.5 shrink-0 text-warn" />
+      <div className="min-w-0">
+        <p className="text-[13px] font-semibold text-text-main">
+          {t("harborReport.adhocCaveat.title")}
+        </p>
+        <p className="mt-0.5 text-[13px] leading-relaxed text-text-variant">
+          {t("harborReport.adhocCaveat.body")}
+        </p>
+      </div>
     </div>
   )
 }
@@ -3658,6 +3704,8 @@ function AggregationDashboard({
         <BatchReportPersonaStrategy meta={pdfMeta} />
 
         <BatchReportMetaByline meta={pdfMeta} />
+
+        {isAdhocSurveyTaskPath(pdfMeta.taskPath) ? <AdhocCaveatBanner /> : null}
 
         {captureError ? (
           <p className="mt-2 text-[13px] text-danger" data-pdf-ignore>
@@ -5498,12 +5546,15 @@ function CountBars({
   compact = false,
   showDetails = true,
   showShare = false,
+  respondentCount = null,
 }: {
   items: CountBarItem[]
   total: number
   compact?: boolean
   showDetails?: boolean
   showShare?: boolean
+  /** Interval denominator. Differs from `total` for select-all questions. */
+  respondentCount?: number | null
 }) {
   const { t } = useI18n()
   if (items.length === 0) {
@@ -5513,7 +5564,14 @@ function CountBars({
   return (
     <div className={compact ? "space-y-1.5" : "space-y-2"}>
       {items.map((item) => {
-        const share = Math.round((item.count / Math.max(total, 1)) * 100)
+        const share =
+          typeof item.share === "number"
+            ? Math.round(item.share * 100)
+            : Math.round((item.count / Math.max(total, 1)) * 100)
+        const hasInterval =
+          showShare &&
+          typeof item.ciLow === "number" &&
+          typeof item.ciHigh === "number"
         return (
           <div key={`${item.label}-${item.count}`} className="space-y-1">
             <div className={`flex items-center justify-between gap-3 ${compact ? "text-[13px]" : "text-[14px]"}`}>
@@ -5521,6 +5579,16 @@ function CountBars({
               <span className="shrink-0 font-mono text-text-variant">
                 {item.count}
                 {showShare ? ` · ${share}%` : ""}
+                {hasInterval ? (
+                  <span
+                    className="ml-1.5 text-text-dim"
+                    title={t("harborReport.marginOfError.hint", {
+                      n: respondentCount ?? total,
+                    })}
+                  >
+                    {formatInterval(item.ciLow as number, item.ciHigh as number)}
+                  </span>
+                ) : null}
               </span>
             </div>
             <div className="h-2 rounded-full bg-surface-high">

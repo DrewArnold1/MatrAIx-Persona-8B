@@ -688,11 +688,19 @@ export interface JobAggregationNumerical {
 export interface JobAggregationCategoricalCount {
   value: string;
   count: number;
+  /** Share of respondents, 0-1. Absent when there were no respondents. */
+  share?: number | null;
+  /** Wilson 95% interval bounds around `share`, 0-1. */
+  ciLow?: number | null;
+  ciHigh?: number | null;
 }
 
 export interface JobAggregationCategorical {
+  /** Total selections. For select-all-that-apply this exceeds respondents. */
   count: number;
   distinctCount: number;
+  /** Respondents, the denominator the interval is computed against. */
+  respondentCount?: number | null;
   counts: JobAggregationCategoricalCount[];
 }
 

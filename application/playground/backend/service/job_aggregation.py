@@ -3143,6 +3143,33 @@ def _is_number(value: str) -> bool:
         return False
 
 
+# 95%, the convention every published survey margin of error uses.
+_WILSON_Z = 1.959964
+
+
+def wilson_interval(successes: int, n: int, z: float = _WILSON_Z) -> tuple[float, float] | None:
+    """Wilson score interval for a proportion, as (low, high).
+
+    Wilson rather than the normal approximation because a survey answer is
+    routinely near 0 or 1 - "could not cover a $400 expense" at 3% - where the
+    normal interval runs past the ends of the scale and understates the error.
+    Wilson stays inside [0, 1] and holds its coverage at small counts.
+
+    Returns None when there is nothing to interval: no respondents, or a
+    success count past the denominator (which would mean the caller counted
+    selections against the wrong base).
+    """
+    if n <= 0 or successes < 0 or successes > n:
+        return None
+    phat = successes / n
+    denominator = 1.0 + (z * z) / n
+    center = phat + (z * z) / (2 * n)
+    spread = z * math.sqrt((phat * (1 - phat) + (z * z) / (4 * n)) / n)
+    low = (center - spread) / denominator
+    high = (center + spread) / denominator
+    return (max(0.0, low), min(1.0, high))
+
+
 def _aggregate_categorical(entries: list[dict[str, Any]]) -> dict[str, Any]:
     counts: Counter[str] = Counter()
     for entry in entries:
@@ -3152,13 +3179,28 @@ def _aggregate_categorical(entries: list[dict[str, Any]]) -> dict[str, Any]:
                 counts[_categorical_key(item)] += 1
         else:
             counts[_categorical_key(raw)] += 1
-    ranked = [
-        {"value": value, "count": count}
-        for value, count in counts.most_common()
-    ]
+
+    # The interval's denominator is respondents, never total selections. For
+    # select-all-that-apply the counts sum past the number of respondents, so
+    # dividing by their sum would silently shrink every interval.
+    respondents = len(entries)
+    ranked: list[dict[str, Any]] = []
+    for value, count in counts.most_common():
+        row: dict[str, Any] = {"value": value, "count": count}
+        interval = wilson_interval(count, respondents)
+        if interval is not None:
+            low, high = interval
+            row["share"] = round(count / respondents, 6)
+            row["ciLow"] = round(low, 6)
+            row["ciHigh"] = round(high, 6)
+        ranked.append(row)
+
     return {
         "count": sum(counts.values()),
         "distinctCount": len(counts),
+        # Respondents, as distinct from the selection total above. The margin
+        # of error is against this.
+        "respondentCount": respondents,
         "counts": ranked,
     }
 

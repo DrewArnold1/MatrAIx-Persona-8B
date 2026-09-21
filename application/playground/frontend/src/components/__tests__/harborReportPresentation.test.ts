@@ -6,6 +6,7 @@ import {
   humanizeAnalysisStatus,
   humanizeAnalysisTitle,
   humanizeFacetLabel,
+  isAdhocSurveyTaskPath,
   likertPointLabel,
 } from "../harborReportPresentation";
 
@@ -41,5 +42,33 @@ describe("Harbor report presentation", () => {
     expect(humanizeFacetLabel("Would you use this task again?", "task_prompt", t)).toBe(
       "Would you use this task again?",
     );
+  });
+});
+
+describe("isAdhocSurveyTaskPath", () => {
+  it("matches a generated ad-hoc task", () => {
+    expect(isAdhocSurveyTaskPath("application/tasks/survey_adhoc-911b0415980b")).toBe(true);
+  });
+
+  it("does not match a hand-authored survey task", () => {
+    // The banner claims the wording was never matched to a published
+    // instrument. On survey_us-economic-pressure that claim is false.
+    expect(isAdhocSurveyTaskPath("application/tasks/survey_us-economic-pressure")).toBe(false);
+    expect(isAdhocSurveyTaskPath("application/tasks/example-survey_product-feedback")).toBe(false);
+  });
+
+  it("tolerates trailing slashes and windows separators", () => {
+    expect(isAdhocSurveyTaskPath("application/tasks/survey_adhoc-abc/")).toBe(true);
+    expect(isAdhocSurveyTaskPath("application\\tasks\\survey_adhoc-abc")).toBe(true);
+  });
+
+  it("is false for empty or missing paths", () => {
+    expect(isAdhocSurveyTaskPath(null)).toBe(false);
+    expect(isAdhocSurveyTaskPath(undefined)).toBe(false);
+    expect(isAdhocSurveyTaskPath("   ")).toBe(false);
+  });
+
+  it("does not match a name that merely contains the prefix", () => {
+    expect(isAdhocSurveyTaskPath("application/tasks/not_survey_adhoc-abc")).toBe(false);
   });
 });

@@ -242,3 +242,20 @@ export function likertPointLabel(
   if (value === scale.max) return t("reports.likert.high");
   return null;
 }
+
+/**
+ * True for a job run from a question asked at runtime.
+ *
+ * Generated tasks live at ``application/tasks/survey_adhoc-<digest>``
+ * (``ADHOC_TASK_PREFIX`` in ``adhoc_survey_task.py``). Such a run carries two
+ * limits a hand-authored instrument does not: its wording was never matched
+ * against a published survey, and nobody reviewed it before it ran. Whoever
+ * reads the distribution is often not whoever asked for it, so the report says
+ * this itself rather than relying on the asker to pass it on.
+ */
+export function isAdhocSurveyTaskPath(taskPath: string | null | undefined): boolean {
+  const raw = (taskPath ?? "").trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!raw) return false;
+  const leaf = raw.split("/").pop() ?? "";
+  return leaf.startsWith("survey_adhoc-");
+}
