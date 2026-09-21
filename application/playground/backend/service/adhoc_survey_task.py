@@ -25,6 +25,7 @@ import hashlib
 import json
 import re
 import shutil
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -452,14 +453,73 @@ def materialize_adhoc_survey_task(
 
 def list_adhoc_survey_tasks(*, repo_root: Path) -> list[str]:
     """Return task paths for every materialized ad-hoc survey task."""
+    return [
+        "application/tasks/{}".format(path.name)
+        for path in _adhoc_task_dirs(repo_root=repo_root)
+    ]
+
+
+def _adhoc_task_dirs(*, repo_root: Path) -> list[Path]:
     tasks_dir = repo_root / "application" / "tasks"
     if not tasks_dir.is_dir():
         return []
     return [
-        "application/tasks/{}".format(child.name)
+        child
         for child in sorted(tasks_dir.iterdir())
         if child.is_dir() and child.name.startswith(ADHOC_TASK_PREFIX)
     ]
+
+
+# Generated tasks are cheap to recreate and accumulate silently, one folder per
+# distinct question. Keep recent ones so re-asking is instant, and keep the cap
+# well above what a working session produces.
+ADHOC_RETENTION_DAYS = 14
+ADHOC_RETENTION_MAX = 200
+
+
+def sweep_adhoc_survey_tasks(
+    *,
+    repo_root: Path,
+    max_age_days: int = ADHOC_RETENTION_DAYS,
+    keep_max: int = ADHOC_RETENTION_MAX,
+    now: float | None = None,
+) -> list[str]:
+    """Delete stale generated tasks. Returns the folder names removed.
+
+    Two rules, newest-first by modification time: anything older than
+    ``max_age_days``, and anything past ``keep_max``. A job that already ran
+    keeps its own results under ``jobs/`` regardless - only the instrument
+    folder goes, and re-asking the same question rewrites it.
+
+    Never raises: a sweep failure must not stop the server from starting.
+    """
+    current = time.time() if now is None else now
+    cutoff = current - (max_age_days * 86400)
+    removed: list[str] = []
+
+    try:
+        dirs = _adhoc_task_dirs(repo_root=repo_root)
+    except OSError:
+        return removed
+
+    def _mtime(path: Path) -> float:
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            return 0.0
+
+    by_recency = sorted(dirs, key=_mtime, reverse=True)
+    for index, path in enumerate(by_recency):
+        stale = _mtime(path) < cutoff
+        surplus = index >= keep_max
+        if not (stale or surplus):
+            continue
+        try:
+            shutil.rmtree(path)
+        except OSError:
+            continue
+        removed.append(path.name)
+    return removed
 
 
 def remove_adhoc_survey_task(*, repo_root: Path, folder_name: str) -> bool:

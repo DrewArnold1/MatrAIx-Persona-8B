@@ -530,9 +530,24 @@ def create_app(catalog_path: Optional[str] = None) -> FastAPI:
     # --- shared singletons (stored on app.state.services) -------------- #
     state = build_state(catalog_path)
 
-    # --- lifespan: release the job thread pool on shutdown ------------- #
+    # --- lifespan: sweep generated tasks, release the pool on shutdown -- #
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        # Ad-hoc survey tasks are written one folder per distinct question and
+        # never removed by the ask path, so they accumulate. Sweeping on start
+        # keeps the task picker readable without touching anything a running
+        # job depends on - results live under jobs/, not in the task folder.
+        try:
+            from backend.service.adhoc_survey_task import sweep_adhoc_survey_tasks
+
+            swept = sweep_adhoc_survey_tasks(repo_root=state.harbor_jobs.repo_root)
+            if swept:
+                print(
+                    "playground: swept {} stale ad-hoc survey task(s)".format(len(swept)),
+                    flush=True,
+                )
+        except Exception as exc:  # noqa: BLE001 - never block startup
+            print("playground: ad-hoc sweep skipped ({})".format(exc), flush=True)
         try:
             yield
         finally:  # pragma: no cover - lifecycle hook
@@ -1431,6 +1446,35 @@ def create_app(catalog_path: Optional[str] = None) -> FastAPI:
             "probability sample."
         )
         return payload
+
+    @app.delete(
+        "/api/survey-eval/adhoc-questions/{folder_name}",
+        tags=["survey-eval"],
+    )
+    def delete_adhoc_survey_question(
+        folder_name: str,
+        services: AppState = Depends(get_services),
+    ) -> Dict[str, Any]:
+        """Delete one generated ad-hoc task.
+
+        Refuses any folder that is not a generated one, so this cannot be used
+        to remove an authored instrument from the repository.
+        """
+        from backend.service.adhoc_survey_task import (
+            AdhocSurveyTaskError,
+            remove_adhoc_survey_task,
+        )
+
+        try:
+            deleted = remove_adhoc_survey_task(
+                repo_root=services.harbor_jobs.repo_root,
+                folder_name=folder_name,
+            )
+        except AdhocSurveyTaskError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not deleted:
+            raise HTTPException(status_code=404, detail="unknown ad-hoc task")
+        return {"deleted": True, "folderName": folder_name}
 
     @app.get(
         "/api/survey-eval/harbor-tasks",

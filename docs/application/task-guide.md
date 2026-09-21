@@ -240,6 +240,21 @@ when you need instrument-specific validation or derived constructs — see
 To keep an ad-hoc instrument, copy its folder to a `survey_*` name and commit
 it. Regenerating is otherwise the expected way to change one.
 
+### Cleanup
+
+Generated folders accumulate, one per distinct question, so they are swept:
+
+| Trigger | Removes |
+|---------|---------|
+| Playground backend startup | Folders older than 14 days, and any past the newest 200 |
+| `DELETE /api/survey-eval/adhoc-questions/{folder_name}` | That one folder |
+
+Both go through `remove_adhoc_survey_task` / `sweep_adhoc_survey_tasks`, which
+refuse any folder without the `survey_adhoc-` prefix — the sweep runs
+unattended at startup, so it must not be able to delete an authored
+instrument. A finished job keeps its own results under `jobs/` either way; only
+the instrument folder goes, and re-asking the same question rewrites it.
+
 ## Job recipes
 
 | Config path | Use |

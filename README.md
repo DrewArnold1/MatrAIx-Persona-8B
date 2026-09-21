@@ -212,6 +212,10 @@ uv run python application/scripts/ask_america.py \
 Omit `--option` for a free-text question; answers then aggregate as themes
 rather than percentages. Add `--task-only` to write the task and stop.
 
+In Playground, the same thing is the **Ask your own question** card at the top
+of the Survey task rail. The generated task appears in the picker immediately,
+then runs through the ordinary sampling and launch path.
+
 > **Read the output as a simulated distribution, not a survey estimate.** The
 > schema has no country dimension, so a cohort is North American adults
 > reweighted to US marginals; `targets_us.json` is `status=draft_unverified`;

@@ -10,7 +10,9 @@ validates against, the reporting directives the aggregator resolves.
 from __future__ import annotations
 
 import json
+import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -33,6 +35,7 @@ from backend.service.adhoc_survey_task import (  # noqa: E402
     list_adhoc_survey_tasks,
     materialize_adhoc_survey_task,
     remove_adhoc_survey_task,
+    sweep_adhoc_survey_tasks,
 )
 
 
@@ -274,3 +277,74 @@ def test_task_name_stays_distinct_for_similar_questions(fake_repo: Path) -> None
     first_name = (first.task_dir / "task.toml").read_text(encoding="utf-8")
     second_name = (second.task_dir / "task.toml").read_text(encoding="utf-8")
     assert first_name != second_name
+
+
+def _age(path: Path, days: float) -> None:
+    """Backdate a folder's mtime so the sweep sees it as stale."""
+    when = time.time() - (days * 86400)
+    os.utime(path, (when, when))
+
+
+def test_sweep_removes_tasks_past_the_age_limit(fake_repo: Path) -> None:
+    fresh = materialize_adhoc_survey_task(
+        repo_root=fake_repo, question="Fresh?", options=["Yes", "No"]
+    )
+    stale = materialize_adhoc_survey_task(
+        repo_root=fake_repo, question="Stale?", options=["Yes", "No"]
+    )
+    _age(stale.task_dir, days=30)
+
+    removed = sweep_adhoc_survey_tasks(repo_root=fake_repo, max_age_days=14)
+    assert removed == [stale.folder_name]
+    assert fresh.task_dir.is_dir()
+    assert not stale.task_dir.exists()
+
+
+def test_sweep_keeps_everything_inside_the_limits(fake_repo: Path) -> None:
+    task = materialize_adhoc_survey_task(
+        repo_root=fake_repo, question="Recent?", options=["Yes", "No"]
+    )
+    assert sweep_adhoc_survey_tasks(repo_root=fake_repo) == []
+    assert task.task_dir.is_dir()
+
+
+def test_sweep_caps_the_folder_count_newest_first(fake_repo: Path) -> None:
+    tasks = []
+    for index in range(5):
+        task = materialize_adhoc_survey_task(
+            repo_root=fake_repo, question="Question {}?".format(index), options=["Yes", "No"]
+        )
+        # Oldest first, so index 4 is the newest.
+        _age(task.task_dir, days=5 - index)
+        tasks.append(task)
+
+    removed = sweep_adhoc_survey_tasks(repo_root=fake_repo, keep_max=2)
+    assert len(removed) == 3
+    surviving = set(list_adhoc_survey_tasks(repo_root=fake_repo))
+    assert surviving == {
+        "application/tasks/{}".format(tasks[4].folder_name),
+        "application/tasks/{}".format(tasks[3].folder_name),
+    }
+
+
+def test_sweep_never_touches_authored_tasks(fake_repo: Path) -> None:
+    """The sweep runs on startup, so a bug here would delete real instruments."""
+    authored = fake_repo / "application" / "tasks" / "survey_us-economic-pressure"
+    (authored / "input").mkdir(parents=True)
+    (authored / "task.toml").write_text("version = \"1.0\"\n", encoding="utf-8")
+    _age(authored, days=999)
+
+    adhoc = materialize_adhoc_survey_task(
+        repo_root=fake_repo, question="Stale?", options=["Yes", "No"]
+    )
+    _age(adhoc.task_dir, days=999)
+
+    removed = sweep_adhoc_survey_tasks(repo_root=fake_repo)
+    assert removed == [adhoc.folder_name]
+    assert authored.is_dir()
+    assert (authored / "task.toml").is_file()
+
+
+def test_sweep_is_quiet_when_there_is_no_tasks_dir(tmp_path: Path) -> None:
+    # Runs at startup; a missing directory must not raise.
+    assert sweep_adhoc_survey_tasks(repo_root=tmp_path) == []

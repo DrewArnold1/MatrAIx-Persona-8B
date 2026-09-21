@@ -76,6 +76,8 @@ Optional per-request override: `"plane": "harbor"` or `"plane": "remote"` on
 | `GET` | `/api/tasks/detail` | Task detail for Playground setup (`taskPath` query). |
 | `GET` | `/api/survey-eval/instruments` | List task-backed survey questionnaires. |
 | `GET` | `/api/survey-eval/harbor-tasks` | List survey Harbor tasks for the Playground. |
+| `POST` | `/api/survey-eval/adhoc-questions` | Materialize a runnable survey task from one question. |
+| `DELETE` | `/api/survey-eval/adhoc-questions/{folder_name}` | Delete one generated ad-hoc task. |
 | `GET` | `/api/chatbot-eval/tasks` | List chatbot Harbor tasks for the Playground. |
 | `GET` | `/api/web-eval/tasks` | List web Harbor tasks for the Playground. |
 | `GET` | `/api/os-app-eval/tasks` | List os-app Harbor tasks for the Playground. |
